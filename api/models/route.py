@@ -6,6 +6,6 @@ class Route:
 
         # This will be computed after the prediction by the model
         self.distance_meters = 0
-        self.eta_seconds = 0
+        self.eat_seconds = 0
         self.path_geojson = {}
         

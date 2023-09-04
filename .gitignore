@@ -1,2 +1,6 @@
 
 bike_router_ai/.env
+api/models/__pycache__/route.cpython-310.pyc
+api/serializers/__pycache__/route_serializer.cpython-310.pyc
+bike_router_ai/__pycache__/bike_router_env.cpython-310.pyc
+safe_ride/__pycache__/settings.cpython-310.pyc
