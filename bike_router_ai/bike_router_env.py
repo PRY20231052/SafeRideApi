@@ -59,7 +59,7 @@ class BikeRouterEnv(Env):
         self.clock = None
 
         GOOGLE_MAPS_API_KEY = config('GOOGLE_MAPS_API_KEY')
-        bm.configure(google_maps_api_key=GOOGLE_MAPS_API_KEY)
+        bm.configure(google_maps_api_key='AIzaSyDg0gEkbdTWKu8kRRrc5RdmWnL0LulvaC0')
 
         # Get the city/place Graph and setting origin and destination
         if graphml_path:
