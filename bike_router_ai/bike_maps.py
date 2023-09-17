@@ -1,6 +1,7 @@
 import gmaps
 import googlemaps
 import osmnx as ox
+import numpy as np
 
 configuration_completed = False
 google_maps = None
@@ -14,11 +15,14 @@ def configure(google_maps_api_key):
     global configuration_completed
     configuration_completed = True
 
+
 def save_graph_to_file(graph, path):
     ox.save_graphml(graph, path)
 
+
 def load_graph_from_file(path):
     return ox.load_graphml(path)
+
 
 def get_max_node_neighbors(graph):
     if not configuration_completed: return print('Please call configure() first!')
@@ -29,14 +33,6 @@ def get_max_node_neighbors(graph):
             max_n = num_neighbours
 
     return max_n
-
-# Calculates the road node closest to the origin coordinates (lat, lon)
-def get_nearest_road_coordinates(latlon):
-    if not configuration_completed: return print('Please call configure() first!')
-    nearest_road = google_maps.snap_to_roads(latlon)
-    lat = nearest_road[0]['location']['latitude']
-    lon = nearest_road[0]['location']['longitude']
-    return (lat, lon)
 
 
 def find_nodes_by_attributes(graph, attributes, values):
@@ -61,6 +57,16 @@ def get_distance_between_nodes(graph, node1, node2):
         graph.nodes[node1]['x'],
         graph.nodes[node2]['y'],
         graph.nodes[node2]['x']
+    )
+
+
+def get_distance_between_latlng_points(latlng1: tuple, latlng2: tuple):
+    if not configuration_completed: return print('Please call configure() first!')
+    return ox.distance.great_circle_vec(
+        latlng1[0],
+        latlng1[1],
+        latlng2[0],
+        latlng2[1]
     )
 
 
@@ -110,7 +116,6 @@ def insert_new_node_in_edge(graph, node_id, node_latlon, edge):
     graph.add_node(node_id, y=node_latlon[0], x=node_latlon[1], street_count=2)
 
     # Adding edges
-    # TODO: check BEARINGS!!!
     graph.add_edge(
         edge[0],
         node_id,
@@ -154,7 +159,9 @@ def change_nodes_colors_by_groups(graph, nodes_groups, colors_groups, default_co
 
 
 def change_edges_colors_by_groups(graph, edges_groups, colors_groups, default_color='w'):
+    assert len(edges_groups) == len(colors_groups), 'Legnth of edge_groups and colors_groups must be the same'
     ec = [default_color for e in graph.edges()]
+
     i = 0
     for u, v, k in graph.edges(keys=True):
         for j, group in enumerate(edges_groups):
@@ -174,29 +181,38 @@ def change_edges_colors(graph, edges, color, default_color='w'):
             ec.append(default_color)
     return ec
 
+def path_to_edges(path):
+    path_edges = []
+    for i, node in enumerate(path):
+        if i > 0: path_edges.append((path[i-1], node))
+    return path_edges
 
-def plot_graph(graph, highlighted_nodes=[], path=None, show_neighbors=False, size=15, node_size=15):
+
+def plot_graph(graph, highlighted_nodes=[], highlighted_edges=[], path=None, show_neighbors=False, figsize=(15, 15), node_size=15):
     # Drawing the graph bla bla this doc
     
     if show_neighbors == True:
         show_neighbors = [True for hn in highlighted_nodes]
-
-    n_groups = [highlighted_nodes]
-    n_g_colors = ['red']
+    
+    n_groups = []
+    n_g_colors = []
+    if highlighted_nodes:
+        n_groups.append(highlighted_nodes)
+        n_g_colors.append('red')
 
     e_groups = []
     e_g_colors = []
+    if highlighted_edges:
+        e_groups.append(highlighted_edges)
+        e_g_colors.append('red')
     
     if path and len(path) >= 2:
-        path_edges = []
-        for i, node in enumerate(path):
-            if i > 0: path_edges.append((path[i-1], node))
-
+        path_edges = path_to_edges(path)
         e_groups.append(path_edges)
         e_g_colors.append('green')
 
-    if not highlighted_nodes:
-        ox.plot_graph(graph, figsize=(size, size), node_size=node_size)
+    if not highlighted_nodes and not highlighted_edges:
+        ox.plot_graph(graph, figsize=figsize, node_size=node_size)
         return
 
     if show_neighbors:
@@ -220,7 +236,7 @@ def plot_graph(graph, highlighted_nodes=[], path=None, show_neighbors=False, siz
     # Plot the graph
     return ox.plot_graph(
         graph,
-        figsize=(size, size),
+        figsize=figsize,
         node_size=node_size,
         node_color=n_colors,
         edge_color=e_colors,
@@ -251,6 +267,7 @@ def convert_nodes_to_coordinates(graph, nodes, invert=False):
         else:
             coords = (graph.nodes[node]['y'], graph.nodes[node]['x'])
         coordinates_list.append(coords)
+
     return coordinates_list
 
 def get_routes_as_geojson(graph, paths:list, invert=False):
@@ -387,7 +404,74 @@ def get_graph(place=None, center_latlon=None, dist=1000, network_type="walk", si
     graph = ox.bearing.add_edge_bearings(graph)
     return graph
 
-def insert_node_in_graph(graph, node_id, node_latlon, log=True):
+
+# Calculates the road node closest to the origin coordinates (lat, lon)
+def get_nearest_road_coordinates(latlon):
+    if not configuration_completed: return print('Please call configure() first!')
+    nearest_road = google_maps.snap_to_roads(latlon)
+    lat = nearest_road[0]['location']['latitude']
+    lon = nearest_road[0]['location']['longitude']
+    return (lat, lon)
+
+
+# Calculates the road node closest to the origin coordinates (lat, lon)
+def get_projection_point_latlon(target, a, b):
+    """
+    Given 2 coordinate points (`a` and `b`),
+    returns the latlon of the projection of the 
+    point `target` in the vector `a`--->`b`
+    """
+    # Calculate vectors
+    a_b = np.array(b) - np.array(a)
+    a_target = np.array(target) - np.array(a)
+    
+    # Calculate the dot product of AC and AB
+    dot_product = np.dot(a_target, a_b)
+    
+    # Calculate the squared magnitude of AB
+    magnitude_squared = np.dot(a_b, a_b)
+    
+    # Calculate the projection of AC onto AB
+    projection = dot_product / magnitude_squared * a_b
+    
+    # Calculate the projected point P by adding the projection to A
+    latlon = np.array(a) + projection
+    
+    return tuple(latlon)
+
+
+def insert_node_in_graph_v2(graph, node_id, latlon, log=False): # TAKES 1 SECOND LESS THAT V1
+
+    # Getting the nearest edge
+    added_edges = []
+    nearest_edge = ox.distance.nearest_edges(graph, latlon[1], latlon[0]) # takes time as well
+    node_latlon = get_projection_point_latlon(
+        latlon,
+        convert_nodes_to_coordinates(graph, nearest_edge[0]),
+        convert_nodes_to_coordinates(graph, nearest_edge[1])
+    )
+    print(node_latlon)
+
+    if log: print("\nOld origin edge data:")
+    if log: print(graph[nearest_edge[0]][nearest_edge[1]][0])
+    
+    # Inserting origin and destination nodes into respective edges
+    added_edges += insert_new_node_in_edge(
+        graph,
+        node_id,
+        node_latlon,
+        nearest_edge
+    )
+
+    if log:
+        print("\nNew edges data:")
+        for edge in added_edges:
+            print(f'{edge} {graph[edge[0]][edge[1]][0]}')
+
+    return graph
+
+
+def insert_node_in_graph(graph, node_id, node_latlon, log=False):
     # Snapping origin and destination coordinates to the closet point of an edge (road)
     road_latlon = get_nearest_road_coordinates(node_latlon)
     if log: print(f'\nClosest road located at coordinates: {road_latlon}')
@@ -472,3 +556,29 @@ def get_place_graph_with_origin_and_destination(place, origin_id, origin_latlon,
     #graph_fig, axis = draw_graph(graph, target_nodes)
 
     return graph
+
+
+def add_cycleway_levels(graph, avenues_keywords, exclude=[], log=False):
+    """
+    Returns a <networkx.MultiDiGraph> with cycleway_level attribute added to its edges attributes
+    
+    graph <networkx.MultiDiGraph>: the city graph
+    avenues_keywords <List>: keywords of the names of the avenues with cycleways
+    exclude <List>: avenue names to exclude, use in case of duplicate names
+    """
+    cycleway_edges = []
+    cycleway_nodes = []
+
+    for u, v, data in graph.edges(data=True):
+        for keyword in avenues_keywords:
+            if 'name' in data and data['name'] not in exclude and keyword in data['name']:
+                if u not in cycleway_nodes: cycleway_nodes.append(u)
+                if v not in cycleway_nodes: cycleway_nodes.append(v)
+                if log: print(data['name'])
+                cycleway_edges.append((u, v))
+                data['cycleway_level'] = 2
+                break # found so no need for continue checking
+            else:
+                data['cycleway_level'] = 0
+
+    return graph, cycleway_edges, cycleway_nodes

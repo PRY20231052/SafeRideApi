@@ -7,6 +7,13 @@ from api.serializers.route_serializer import RouteSerializer
 from bike_router_ai.bike_router_env import BikeRouterEnv
 from bike_router_ai import bike_maps as bm
 import os
+import copy
+
+# Initializing the Env
+base_env = BikeRouterEnv(
+    graphml_path=f'{os.getcwd()}/bike_router_ai/graph_SB_SI_w_cycleways.graphml',
+    crime_data_excel_path=f'{os.getcwd()}/bike_router_ai/criminal_data.xlsx',
+)
 
 class RouteViewSet(viewsets.ViewSet):
 
@@ -19,11 +26,22 @@ class RouteViewSet(viewsets.ViewSet):
             route = serializer.save()  # since we don't need data persistance, save() will only return the serialized entity
 
             print('\nComputing route...')
-            env = BikeRouterEnv(
-                graphml_path=f'{os.getcwd()}/bike_router_ai/city_graph.graphml',
+
+            # Method 1: Creating a new Env instance
+            # env = BikeRouterEnv(
+            #     graphml_path=f'{os.getcwd()}/bike_router_ai/graph_SB_SI_w_cycleways.graphml',
+            #     crime_data_excel_path=f'{os.getcwd()}/bike_router_ai/criminal_data.xlsx',
+            #     requested_origin_latlon=(route.origin.latitude, route.origin.longitude),
+            #     requested_destination_latlon=(route.waypoints[-1].latitude, route.waypoints[-1].longitude)
+            # )
+
+            # Method 2: deepcopying from a preinitialized Env instance
+            env = copy.deepcopy(base_env)
+            env.set_origin_and_destination(
                 origin_latlon=(route.origin.latitude, route.origin.longitude),
-                destination_latlon=(route.waypoints[-1].latitude, route.waypoints[-1].longitude)
+                destination_latlon=(route.waypoints[-1].latitude, route.waypoints[-1].longitude),
             )
+
             # TODO: implement model computation of the route
             # route.arrival_time = None
             # route.distance_meters = 0

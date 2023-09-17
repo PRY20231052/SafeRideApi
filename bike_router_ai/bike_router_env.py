@@ -1,10 +1,11 @@
-import gymnasium as gym
 from gymnasium import Env
 from gymnasium.spaces import Discrete, Box, Dict, Tuple
 import numpy as np
 import random
 from bike_router_ai import bike_maps as bm
 from decouple import config
+import pandas as pd
+
 
 # Valores maximos y minimos de latitude y longitude de Lima Metropolitana
 MIN_LIM_LAT = -12.25
@@ -20,34 +21,33 @@ class BikeRouterEnv(Env):
         self,
         place=None,
         graphml_path=None,
-        origin_latlon=None,
-        destination_latlon=None,
-        force_arriving=False,
+        crime_data_excel_path=None,
+        requested_district=None,
+        requested_origin_latlon=None,
+        requested_destination_latlon=None,
+        requested_origin_id=0,
+        requested_destination_id=1,
         randomize_ori_dest_on_reset=True,
-        origin_id=0,
-        destination_id=1,
+        force_arriving=False,
         log=False,
         render_mode='human',
         graph_size=13.3,
         window_resolution=1000,
-        window_aspect_ratio=(1,1),
+        window_aspect_ratio=(1,1)
     ):
+        """
+        Hi
+        
+        If human-rendering is used (which is not), `self.window` will be a reference to the window that we draw to.
+        `self.clock` will be a clock that is used to ensure that the environment is rendered at the correct framerate.
+        They will remain `None` until human-mode is used for the first time.
+        """
+
         print('Initializing the env...')
 
         self.force_arriving = force_arriving
         self.randomize_ori_dest_on_reset = randomize_ori_dest_on_reset
         self.log = log
-
-        # Monitoring flag variables
-        self.went_too_far = False
-        self.revisiting = False
-        self.arrived = False
-
-        """
-        If human-rendering is used, `self.window` will be a reference to the window that we draw to.
-        `self.clock` will be a clock that is used to ensure that the environment is rendered at the correct framerate.
-        They will remain `None` until human-mode is used for the first time.
-        """
 
         # Variables related to render()
         assert render_mode is None or render_mode in self.metadata["render_modes"]
@@ -63,77 +63,64 @@ class BikeRouterEnv(Env):
 
         # Get the city/place Graph and setting origin and destination
         if graphml_path:
+            print('Loading map graph from file...')
             self.graph = bm.load_graph_from_file(graphml_path)
         else:
+            print('Fetching map data from OSM api...')
             self.graph = bm.get_graph(place, simplify=False)
             #bm.save_graph_to_file(self.graph, 'city_graph.graphml')
 
-        # Assignin Origin and Destination
-        if origin_latlon and destination_latlon:
+        self.crime_points = []
+        if crime_data_excel_path:
+            # Set sheet_name to none to get the full crime points from SB and SI all together
+            self.crime_points = self.get_crime_points(crime_data_excel_path, requested_district) 
+
+        ##########################################################################################################################
+
+        # Assignin Requested Origin and Destination
+        if requested_origin_latlon and requested_destination_latlon:
             # Adding given origin and destination to the graph
             self.randomize_ori_dest_on_reset = False
-            print(f'Setting origin coordinates {origin_latlon} and destination coordinates {destination_latlon}')
-            self.origin_node = origin_id
-            self.destination_node = destination_id
-            bm.insert_node_in_graph(self.graph, self.origin_node, origin_latlon, log=False)
-            bm.insert_node_in_graph(self.graph, self.destination_node, destination_latlon, log=False)
-        else:
-            print("Assigning random existing graph's nodes as origin and destination")
-            random_index = random.randint(0, len(self.graph.nodes)-1)
-            self.origin_node = list(self.graph.nodes)[random_index]
-            while True:
-                random_index = random.randint(0, len(self.graph.nodes)-1)
-                self.destination_node = list(self.graph.nodes)[random_index]
-                if self.destination_node != self.origin_node: break
+            print(f'Setting origin coordinates {requested_origin_latlon} and destination coordinates {requested_destination_latlon}')
+            self.origin_node = requested_origin_id
+            self.destination_node = requested_destination_id
 
-        self.current_node = self.origin_node
-        self.path = [self.current_node]
-
-        # When inserting nodes with ids it returns a list of paths with just one element so we have to add [0] at the end. idk why
-        self.shortest_path = bm.get_shortest_path(self.graph, self.origin_node, self.destination_node)
-
-        self.distance_origin_destination = bm.get_distance_between_nodes(self.graph, self.origin_node, self.destination_node)
-        self.traveled_distance = 0.0
-
+            # TODO: THIS FUNCTION TAKES TO LONG TO COMPUTE!!!
+            print('Inserting origin node into graph...')
+            bm.insert_node_in_graph(self.graph, self.origin_node, requested_origin_latlon)
+            print('Inserting destination node into graph...')
+            bm.insert_node_in_graph(self.graph, self.destination_node, requested_destination_latlon)
+            print('Nodes successfully inserted!')
+        
         # DEFINING ACTION SPACE
-        self.max_actions = bm.get_max_node_neighbors(self.graph) # Amount of actions that we expect the agent to have available at max
-        #self.max_actions = 6
-
-        self.current_node_neighbours = bm.get_node_neighbours(self.graph, self.current_node) # Defining initial possible steps
-        # 1: possible action, 0: impossible action
-        self.action_mask = np.array(
-            [1] * len(self.current_node_neighbours) + [0] * (self.max_actions - len(self.current_node_neighbours)),
-            dtype=np.int8
-        )
+        self.max_actions = 8 # Amount of actions that we expect the agent to have available at max
+        #self.max_actions = bm.get_max_node_neighbors(self.graph) # this loops the whole graph and finds he max amount of neighbors a node can have
+        
         self.action_space = Discrete(self.max_actions)
-
 
         # DEFINING OBSERVATION SPACE (information relevant to know for the agent's training)
         self.edge_attributes_spaces = {
             'cycleway_level': Box(
-                low=0,
+                low=-1,
                 high=2,
                 dtype=np.int8
             ), # 0=none, 1=unsafe, 2=safe
             'maxspeed': Box(
-                low=30,
+                low=-1,
                 high=100,
                 dtype=np.int8
             ), # Max car speed
             'relative_bearing': Box(
-                low=0.0,
+                low=-1,
                 high=360.0,
                 dtype=np.float32
             ),
             'end_node_visited_status': Box(
-                low=0,
+                low=-1,
                 high=1,
                 dtype=np.int8
             ),
         }
-
-        # setting initial last step attributes all to -1 so the agent can learn that it means we haven't done a step yet
-        self.previous_step = {key: -1 for key in self.edge_attributes_spaces}
 
         self.observation_space = Dict({
             'current_latlon': Box(
@@ -173,14 +160,100 @@ class BikeRouterEnv(Env):
                 dtype=np.int8
             ),
             'possible_steps': Tuple([Dict(self.edge_attributes_spaces)]*self.max_actions),
+            'crime_points': Tuple([
+                Box(
+                    low=np.array([MIN_LIM_LAT, MIN_LIM_LON]),
+                    high=np.array([MAX_LIM_LAT, MAX_LIM_LON]),
+                    dtype=np.float64
+                ),
+            ]*len(self.crime_points)),
         })
+
+        self.reset()
         print('Env succesfully initialized!')
+
+
+    def reset(self, seed=None, options=None):
+        # We need the following line to seed self.np_random
+        super().reset(seed=seed)
+
+        self.went_too_far = False
+        self.revisiting = False
+        self.arrived = False
+        self.selected_invalid_action = False
+
+        # Assigning random origin and destination
+        if self.randomize_ori_dest_on_reset == True:
+            random_index = random.randint(0, len(self.graph.nodes)-1)
+            self.origin_node = list(self.graph.nodes)[random_index]
+            while True:
+                random_index = random.randint(0, len(self.graph.nodes)-1)
+                self.destination_node = list(self.graph.nodes)[random_index]
+                if self.destination_node != self.origin_node: break
+
+        # Returning to origin node
+        self.current_node = self.origin_node
+        self.path = [self.current_node]
+
+        # When inserting nodes with ids it returns a list of paths with just one element so we have to add [0] at the end. idk why
+        self.shortest_path = bm.get_shortest_path(self.graph, self.origin_node, self.destination_node)
+
+        self.traveled_distance = 0.0
+        self.distance_origin_destination = bm.get_distance_between_nodes(self.graph, self.origin_node, self.destination_node)
+        self.distance_tolerance_multiplier = self.calculate_distance_tolerance(self.distance_origin_destination)        
+
+        self.current_node_neighbours = bm.get_node_neighbours(self.graph, self.current_node) # Defining initial possible steps
+        # 1: possible action, 0: impossible action
+        self.action_mask = np.array(
+            [1] * len(self.current_node_neighbours) + [0] * (self.max_actions - len(self.current_node_neighbours)),
+            dtype=np.int8
+        )
+
+        # setting initial last step attributes all to -1 so the agent can learn that it means we haven't done a step yet
+        self.previous_step = {key: -1 for key in self.edge_attributes_spaces}
+        
+        obs = self._get_obs()
+        info = self._get_info()
+
+        return obs, info
+    
+    def set_origin_and_destination(self, origin_latlon, destination_latlon, origin_node_id=0, destination_node_id=1):
+        print(f'Setting origin coordinates {origin_latlon} and destination coordinates {destination_latlon}')
+        self.randomize_ori_dest_on_reset = False
+        self.origin_node = origin_node_id
+        self.destination_node = destination_node_id
+        print('Inserting origin node into graph...')
+        bm.insert_node_in_graph(self.graph, self.origin_node, origin_latlon)
+        print('Inserting destination node into graph...')
+        bm.insert_node_in_graph(self.graph, self.destination_node, destination_latlon)
+        print('Nodes successfully inserted!')
+        self.reset()
+        
+
+    def get_crime_points(self, excel_path, sheet_name=None):
+        crime_data = pd.read_excel(excel_path, sheet_name=sheet_name)
+        crime_points = []
+        if not sheet_name: # if none, retrieve all crime data together
+            for key, data_frame in crime_data.items():
+                for index, row in data_frame.iterrows():
+                    crime_points.append((row['latitude'], row['longitude']))
+        elif isinstance(sheet_name, str): # retrieves the data only for the requested sheet
+            for index, row in crime_data.iterrows():
+                crime_points.append((row['latitude'], row['longitude']))
+        return crime_points
+    
+
+    def _is_close_to_crime_point(self, current_latlon, tolerance_radius_meters=100):
+        for crime_point_latlng in self.crime_points:
+            distance = bm.get_distance_between_latlng_points(current_latlon, crime_point_latlng)
+            if distance <= tolerance_radius_meters:
+                return True
+        return False
 
 
     def _get_edge_attributes(self, u, v):
 
         edge_attributes = self.graph[u][v][0]
-        cycleway_level = 1 if edge_attributes['highway'] == 'cycleway' else 0
 
         if 'maxspeed' in edge_attributes:
             maxspeed = edge_attributes['maxspeed']
@@ -194,7 +267,7 @@ class BikeRouterEnv(Env):
         relative_bearing = bm.calculate_relative_bearing(self.graph, u, v, self.destination_node)
 
         return {
-            'cycleway_level': cycleway_level,
+            'cycleway_level': int(edge_attributes['cycleway_level']) if 'cycleway_level' in edge_attributes else 0,
             'maxspeed': maxspeed,
             'relative_bearing': relative_bearing,
             'end_node_visited_status': 1 if v in self.path else 0
@@ -220,14 +293,15 @@ class BikeRouterEnv(Env):
                 self.graph.nodes[self.destination_node]['x']
             ],
             'steps_count': len(self.path) - 1,
-            'steps_tolerance': len(self.shortest_path) - 1,
+            'steps_tolerance': int(len(self.shortest_path) * 1.1),
             'distance_to_destination': bm.get_distance_between_nodes(
                 self.graph, self.current_node, self.destination_node
             ),
             'traveled_distance': self.traveled_distance,
             'previous_step': self.previous_step,
             'num_possible_steps': len(self.current_node_neighbours),
-            'possible_steps': self._get_obs_possible_steps()
+            'possible_steps': self._get_obs_possible_steps(),
+            'crime_points': tuple(self.crime_points),
         }
 
 
@@ -239,6 +313,7 @@ class BikeRouterEnv(Env):
             'went_too_far': self.went_too_far,
             'revisiting': self.revisiting,
             'arrived': self.arrived,
+            'selected_invalid_action': self.selected_invalid_action
             # 'path': self.path,
             # 'shortest_path': self.shortest_path
         }
@@ -252,63 +327,77 @@ class BikeRouterEnv(Env):
             return -10
 
 
+    def calculate_distance_tolerance(self, distance):
+        max_distance = 2000 # Para San Borja
+        max_multiplier = 1.7
+        min_multiplier = 1.3
+        if distance >= max_distance: return min_multiplier
+        tolerance_multiplier = ((min_multiplier - max_multiplier) / (max_distance)) * distance + max_multiplier
+        return tolerance_multiplier
+
+
     def _evaluate_observation(self, obs):
 
         reward = 0
+
+        if self._is_close_to_crime_point(obs['current_latlon']):
+            reward -= 5
+        else: reward += 5
 
         # if we exceed the amount of steps done in the shortest_path
         # start taking off rewards. Will be a few points at the beggining
         # but it will increase over time.
         if obs['steps_count'] > obs['steps_tolerance']:
             exceeded_steps = obs['steps_count'] - obs['steps_tolerance']
-            reward -= exceeded_steps/2 # More steps means even less reward
+            if exceeded_steps > 0: reward -= exceeded_steps/2 # More steps means even less reward
 
         if obs['previous_step']['maxspeed'] < 40:
-            reward += 2
+            reward += 3
 
         #0: no cycleway, 1: unsafe cycleway, 2: safe cycle_way
         if obs['previous_step']['cycleway_level'] == 1:
-            reward += 2
+            reward += 3
         elif obs['previous_step']['cycleway_level'] == 2:
-            reward += 4
+            reward += 5
 
         # Reward if distance_to_destination is getting smaller
         if obs['distance_to_destination'] < bm.get_distance_between_nodes(
             self.graph, self.path[-2], self.destination_node
         ):
-            reward += 6
+            reward += 7
         else:
-            reward -= 2
-
+            reward -= 3
 
         # if it's heading in the direction of the destination
         # relative_bearing(to the destination) == orientation
         reward += self._calculate_reward_based_on_orientation(
             obs['previous_step']['relative_bearing'],
-            bearing_sweetspot=20
+            bearing_sweetspot=25
         )
-
 
         # Episode Termination conditions
         if self.current_node == self.destination_node:
             self.arrived = True
-            reward += 500
+            reward += 1000
             terminated = True
-        elif len(self.path) > 1 and obs['previous_step']['end_node_visited_status'] == 1: # If revisiting node
+        # If revisiting node
+        elif len(self.path) > 1 and obs['previous_step']['end_node_visited_status'] == 1: 
             self.revisiting = True
-            reward -= 500
+            reward -= 300
             terminated = True
-            if self.force_arriving:
-                self.path.pop(-1)
-                self.path += bm.get_shortest_path(self.graph, self.path[-1], self.destination_node)
-                self.arrived = True
-        elif obs['distance_to_destination'] > self.distance_origin_destination*1.20:
+        # If it's going too far away
+        elif obs['distance_to_destination'] > self.distance_origin_destination * self.distance_tolerance_multiplier:
             self.went_too_far = True
-            reward -= 500
+            reward -= 200
             terminated = True
         else:
             terminated = False
-
+        
+        # Forcing path to reach the destination
+        if terminated and not self.arrived and self.force_arriving:
+            if self.revisiting: self.path.pop(-1)
+            self.path += bm.get_shortest_path(self.graph, self.path[-1], self.destination_node)
+            self.arrived = True
 
         # Meaning that the episode got stuck (not supported by keras-rl2)
         truncated = False
@@ -323,18 +412,19 @@ class BikeRouterEnv(Env):
     def get_action_mask(self):
         return self.action_mask
 
-    def set_origin_and_destination(self, origin_latlon, destination_latlon):
-        self.randomize_ori_dest_on_reset = False
-        self.origin_node = 0
-        self.destination_node = 1
-        bm.insert_node_in_graph(self.graph, self.origin_node, origin_latlon, log=False)
-        bm.insert_node_in_graph(self.graph, self.destination_node, destination_latlon, log=False)
-        self.reset()
-
-
     def step(self, action):
-        if self.log: print(f'Selected action {action} from {self.current_node_neighbours}')
 
+        # EVALUAR CAMBIAR CAMPO DE ACCION PARA QUE SEA MOVIMIENTO FIJO EN BASE A COORDENADAS
+        # CASTIGAR POR ESCOGER 
+
+        if self.log: print(f'Selected action {action} from {self.current_node_neighbours}')
+        
+        # Model predicted a non-valid action
+        if action >= len(self.current_node_neighbours):
+            self.selected_invalid_action = True
+            #                obs, reward, terminated, truncated, info
+            return self._get_obs(), -300, True, False, self._get_info()
+        
         # Apply action
         self.current_node = self.current_node_neighbours[action]
         self.previous_step = self._get_edge_attributes(self.path[-1], self.current_node)
@@ -342,7 +432,7 @@ class BikeRouterEnv(Env):
 
         # Adding to the traveled distance
         # btw, self.path[-1] == self.current_node
-        last_edge_length = int(self.graph[self.path[-2]][self.path[-1]][0]['length'])
+        last_edge_length = self.graph[self.path[-2]][self.path[-1]][0]['length']
         self.traveled_distance+=last_edge_length
 
         # get the new neighbours from current node
@@ -356,51 +446,11 @@ class BikeRouterEnv(Env):
 
         # Observe the resulting state after applying action
         obs = self._get_obs()
-
+        
         # Calculates reward, verifies episode termination conditions, and more
         reward, terminated, truncated, info = self._evaluate_observation(obs)
 
         return obs, reward, terminated, truncated, info
-
-
-    def reset(self, seed=None, options=None):
-
-        # We need the following line to seed self.np_random
-        super().reset(seed=seed)
-
-        self.went_too_far = False
-        self.revisiting = False
-        self.arrived = False
-
-        # Assigning random origin and destination
-        if self.randomize_ori_dest_on_reset == True:
-            random_index = random.randint(0, len(self.graph.nodes)-1)
-            self.origin_node = list(self.graph.nodes)[random_index]
-            while True:
-                random_index = random.randint(0, len(self.graph.nodes)-1)
-                self.destination_node = list(self.graph.nodes)[random_index]
-                if self.destination_node != self.origin_node: break
-
-        # Returning to origin node
-        self.current_node = self.origin_node
-
-        self.path = [self.current_node]
-        self.shortest_path = bm.get_shortest_path(self.graph, self.origin_node, self.destination_node)
-
-        self.traveled_distance = 0.0
-        self.current_node_neighbours = bm.get_node_neighbours(self.graph, self.current_node)
-
-        self.action_mask = np.array(
-            [1] * len(self.current_node_neighbours) + [0] * (self.max_actions - len(self.current_node_neighbours)),
-            dtype=np.int8
-        )
-
-        self.previous_step = {key: -1 for key in self.edge_attributes_spaces}
-
-        obs = self._get_obs()
-        info = self._get_info()
-
-        return obs, info
 
 
     def render(self):
