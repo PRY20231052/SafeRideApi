@@ -13,9 +13,11 @@ class RouteSerializer(serializers.Serializer):
     arrival_time = serializers.DateTimeField(required=False)
     distance_meters = serializers.IntegerField(required=False)
     eta_seconds = serializers.IntegerField(required=False)
-    path = LocationSerializer(many=True, required=False)
+    path_nodes = LocationSerializer(many=True, required=False)
+    path_edges_attributes = serializers.ListField(required=False) #TODO: Idk how good this is
     path_geojson = serializers.DictField(required=False)
-
+    
+    # Creates a Route instance given a route json object
     def create(self, data):
         origin_data = data.pop('origin')
         waypoints_data = data.pop('waypoints')

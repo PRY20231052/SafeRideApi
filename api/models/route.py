@@ -14,6 +14,7 @@ class Route:
         self.arrival_time = None
         self.distance_meters = 0
         self.eta_seconds = 0
-        self.path = []
+        self.path_nodes = []
+        self.path_edges_attributes = []
         self.path_geojson = {}
         

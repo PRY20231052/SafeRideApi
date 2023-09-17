@@ -23,7 +23,9 @@ class RouteViewSet(viewsets.ViewSet):
         serializer = self.serializer_class(data=request.data)
         
         if serializer.is_valid():
-            route = serializer.save()  # since we don't need data persistance, save() will only return the serialized entity
+            # since we don't need data persistance,
+            # save() will only return the serialized entity
+            route = serializer.save()  
 
             print('\nComputing route...')
 
@@ -38,7 +40,7 @@ class RouteViewSet(viewsets.ViewSet):
             # route.distance_meters = 0
             # route.eta_seconds = 0
             
-            route.path = [Location(
+            route.path_nodes = [Location(
                 latitude=env.graph.nodes[node]['y'],
                 longitude=env.graph.nodes[node]['x'],
             ) for node in env.shortest_path]
