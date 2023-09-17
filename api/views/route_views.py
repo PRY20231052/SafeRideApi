@@ -27,15 +27,6 @@ class RouteViewSet(viewsets.ViewSet):
 
             print('\nComputing route...')
 
-            # Method 1: Creating a new Env instance
-            # env = BikeRouterEnv(
-            #     graphml_path=f'{os.getcwd()}/bike_router_ai/graph_SB_SI_w_cycleways.graphml',
-            #     crime_data_excel_path=f'{os.getcwd()}/bike_router_ai/criminal_data.xlsx',
-            #     requested_origin_latlon=(route.origin.latitude, route.origin.longitude),
-            #     requested_destination_latlon=(route.waypoints[-1].latitude, route.waypoints[-1].longitude)
-            # )
-
-            # Method 2: deepcopying from a preinitialized Env instance
             env = copy.deepcopy(base_env)
             env.set_origin_and_destination(
                 origin_latlon=(route.origin.latitude, route.origin.longitude),
@@ -46,6 +37,7 @@ class RouteViewSet(viewsets.ViewSet):
             # route.arrival_time = None
             # route.distance_meters = 0
             # route.eta_seconds = 0
+            
             route.path = [Location(
                 latitude=env.graph.nodes[node]['y'],
                 longitude=env.graph.nodes[node]['x'],
