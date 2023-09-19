@@ -1,11 +1,5 @@
-
+__pycache__
+**__pycache__
+*__pycache__
+*.pyc
 bike_router_ai/.env
-api/models/__pycache__/route.cpython-310.pyc
-api/serializers/__pycache__/route_serializer.cpython-310.pyc
-bike_router_ai/__pycache__/bike_router_env.cpython-310.pyc
-safe_ride/__pycache__/settings.cpython-310.pyc
-api/models/__pycache__/location.cpython-310.pyc
-api/models/__pycache__/route.cpython-310.pyc
-api/serializers/__pycache__/location_serializer.cpython-310.pyc
-api/serializers/__pycache__/route_serializer.cpython-310.pyc
-api/views/__pycache__/route_views.cpython-310.pyc
