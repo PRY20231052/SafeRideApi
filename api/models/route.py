@@ -12,9 +12,9 @@ class Route:
 
         # This will be computed after the prediction by the model
         self.arrival_time = None
-        self.distance_meters = 0
+        self.distance_meters = 0.0
         self.eta_seconds = 0
         self.path_nodes = []
-        self.path_edges_attributes = []
+        self.path_edges = []
         self.path_geojson = {}
         

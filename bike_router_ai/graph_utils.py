@@ -2,6 +2,10 @@ import gmaps
 import googlemaps
 import osmnx as ox
 import numpy as np
+import math
+from shapely.geometry import Point
+from shapely.geometry import LineString
+from copy import deepcopy
 
 configuration_completed = False
 google_maps = None
@@ -35,21 +39,6 @@ def get_max_node_neighbors(graph):
     return max_n
 
 
-def find_nodes_by_attributes(graph, attributes, values):
-    if not configuration_completed: return print('Please call configure() first!')
-    matching_nodes = []
-    for node in graph.nodes(data=True):
-        match_status = False
-        # node MUST match all the give attributes values
-        for i, att in enumerate(attributes):
-            if node[1][att] == values[i]:
-                match_status = True
-            else:
-                match_status = False
-        if match_status: matching_nodes.append(node)
-    return matching_nodes
-
-
 def get_distance_between_nodes(graph, node1, node2):
     if not configuration_completed: return print('Please call configure() first!')
     return ox.distance.great_circle_vec(
@@ -57,16 +46,6 @@ def get_distance_between_nodes(graph, node1, node2):
         graph.nodes[node1]['x'],
         graph.nodes[node2]['y'],
         graph.nodes[node2]['x']
-    )
-
-
-def get_distance_between_latlng_points(latlng1: tuple, latlng2: tuple):
-    if not configuration_completed: return print('Please call configure() first!')
-    return ox.distance.great_circle_vec(
-        latlng1[0],
-        latlng1[1],
-        latlng2[0],
-        latlng2[1]
     )
 
 
@@ -101,49 +80,6 @@ def get_edge_bearing(graph, node1, node2):
         graph.nodes[node2]['y'],
         graph.nodes[node2]['x']
     )
-
-
-def insert_new_node_in_edge(graph, node_id, node_latlon, edge):
-    # If node already exists in the network then do nothing
-    if find_nodes_by_attributes(graph, ['y', 'x'], [node_latlon[0], node_latlon[1]]):
-        print(f"Node {node_id} already in Network")
-        return []
-
-    added_edges = []
-    edge_attrs = graph[edge[0]][edge[1]][0]  # Copy edge attributes
-
-    # Adding node
-    graph.add_node(node_id, y=node_latlon[0], x=node_latlon[1], street_count=2)
-
-    # Adding edges
-    graph.add_edge(
-        edge[0],
-        node_id,
-        **{**edge_attrs, 'length': get_distance_between_nodes(graph, edge[0], node_id), 'bearing': get_edge_bearing(graph, edge[0], node_id)}
-    )
-    graph.add_edge(
-        node_id,
-        edge[1],
-        **{**edge_attrs, 'length': get_distance_between_nodes(graph, node_id, edge[1]), 'bearing': get_edge_bearing(graph, node_id, edge[1])}
-    )
-    added_edges += [(edge[0], node_id), (node_id, edge[1])]
-
-    if edge_attrs['oneway'] == False:  # is the edge bi directional? then add reversed edges
-        graph.add_edge(
-            edge[1],
-            node_id,
-            **{**edge_attrs, 'length': get_distance_between_nodes(graph, edge[1], node_id), 'bearing': get_edge_bearing(graph, edge[1], node_id)}
-        )
-        graph.add_edge(
-            node_id,
-            edge[0],
-            **{**edge_attrs, 'length': get_distance_between_nodes(graph, node_id, edge[0]), 'bearing': get_edge_bearing(graph, node_id, edge[0])}
-        )
-        added_edges += [(edge[1], node_id), (node_id, edge[0])]
-        graph.remove_edge(edge[1], edge[0])  # Remove original edge from graph
-
-    graph.remove_edge(edge[0], edge[1])  # Remove original edge from graph
-    return added_edges
 
 
 def change_nodes_colors_by_groups(graph, nodes_groups, colors_groups, default_color='w'):
@@ -250,42 +186,125 @@ def get_node_neighbours(graph, node):
     return steps
 
 
-def convert_nodes_to_coordinates(graph, nodes, invert=False):
-
+def get_node_coordinates(graph, nodes, invert=False):
     """
-    nodes: takes one or a list of nodes of the graph
+    node: node or a list of nodes from the graph
     invert: if True, coords will be return as 'lonlat' instead of deafault 'latlon'
     """
 
-    if type(nodes) != type([]): # if nodes isnt a list
-        return (graph.nodes[nodes]['x'], graph.nodes[nodes]['y']) if invert else (graph.nodes[nodes]['y'], graph.nodes[nodes]['x'])
+    if type(nodes) != type([]): # if nodes isnt a list, so its a single node
+        return [graph.nodes[nodes]['x'], graph.nodes[nodes]['y']] if invert else [graph.nodes[nodes]['y'], graph.nodes[nodes]['x']]
     
     coordinates_list = []
     for node in nodes:
-        if invert:
-            coords = (graph.nodes[node]['x'], graph.nodes[node]['y'])
-        else:
-            coords = (graph.nodes[node]['y'], graph.nodes[node]['x'])
+        if invert: coords = [graph.nodes[node]['x'], graph.nodes[node]['y']]
+        else: coords = [graph.nodes[node]['y'], graph.nodes[node]['x']]
         coordinates_list.append(coords)
 
     return coordinates_list
 
-def get_routes_as_geojson(graph, paths:list, invert=False):
+
+def get_distance_between_points(point1, point2, coordinates_format='latlon'):
+    if not configuration_completed: return print('Please call configure() first!')
+    if coordinates_format == 'latlon':
+        return ox.distance.great_circle_vec(
+            point1[0],
+            point1[1],
+            point2[0],
+            point2[1]
+        )
+    elif coordinates_format == 'lonlat':
+        return ox.distance.great_circle_vec(
+            point1[1],
+            point1[0],
+            point2[1],
+            point2[0]
+        )
+    else: Exception('Invalid value for parameter `coordinates_format`. Valid formats: "latlon", "lonlat"')
+
+# DEPRECATED
+def arrange_points(points, starting_point, coordinates_format='lonlat'):
+
+    """
+    DEPRECATED AND INCOMPLETE
+    points: list of coordinate points to be arrange in position order
+    starting_point: a point inside the points list that's suppoused to be the start of the line, from where the rest of the points follow the line
+    coordinates_format: the format of the coordinates of the given points. Can be 'latlon' or 'lonlat'.
+    """
+
+    print(f'Points to arrange: {points}')
+    distances_matrix = np.zeros((len(points), len(points)))
+    
+    for i, point1 in enumerate(points):
+        for j, point2 in enumerate(points):
+            if i != j:
+                distance = get_distance_between_points(point1, point2, coordinates_format=coordinates_format)
+                distances_matrix[i][j] = distance
+
+    # index = points.index(starting_point)
+    # arranged_points = [points[index]]
+
+    # sorted_array = np.sort(distances_matrix[index])
+    # print(sorted_array)
+
+    # for i, point1 in enumerate(points):
+    #     for j, point2 in enumerate(points):
+    #         if i != j:
+    #             shortest_distance = distances_matrix[i][j]
+
+    # print(distances_matrix)
+    # print('=========================================')
+
+    return points
+
+
+def get_path_edges_attrs(graph, path):
+    edges_attrs = []
+    for i in range(len(path)-1):
+        attrs = graph[path[i]][path[i+1]][0]
+        edges_attrs.append(attrs)
+    return edges_attrs
+
+
+def get_routes_as_geojson(graph, paths:list, invert=False, allow_curves=True):
     """
     graph: a NetworkX Directed Graph of the city
-    paths: list of paths to display in the map, where each path is a list of node_ids from the provided graph
+    paths: path or list of paths to display in the map, where each path is a list of node_ids from the provided graph
     invert: if True, coords will be return as 'lonlat' instead of deafault 'latlon'
 
     Returns a GeoJson data for displaying with GoogleMaps API
     """
     routes_features = []
-    for i, path in enumerate(paths):
-        # For some stupid reason, geojson_layer needs the coordinates in LonLat...
-        route_coordinates = convert_nodes_to_coordinates(graph, path, invert=invert)
+    for path_index, path in enumerate(paths):
+        route_coordinates = []
+        for i, node in enumerate(path):
+            # if it's not the last node and its edge doesn't has a geometry attr (meaning it's a curved line)
+            # The 'geometry' edge attribute refers to the the points (IN LONLAT FORMAT) needed to recreate the curved line,
+            # for the lines inside a simplify map
+            if allow_curves and i < len(path)-1 and 'geometry' in graph[node][path[i+1]][0]:
+                geometry_coords = list(graph[node][path[i+1]][0]['geometry'].coords)
+
+                # SOME TIMES curves are showing in different order
+                # Assuming that is not that fucked up and that only thing happening is that
+                # they are just in reverse, and not in weird order, this should do the trick
+
+                # if the geometry coords are backwards
+                if get_node_coordinates(graph, node, invert=True) == list(geometry_coords[-1]):
+                    geometry_coords.reverse()
+
+                # we don't add the last point of the curved since it's the same as the end node of the whole edge
+                # Same point that's gonna be added in the next iteration for the next edge
+                for j in range(len(geometry_coords)-1):
+                    if invert: route_coordinates.append(list(geometry_coords[j]))
+                    else: route_coordinates.append([geometry_coords[j][1], geometry_coords[j][0]])
+
+            else:
+                route_coordinates.append(get_node_coordinates(graph, node, invert=invert))
+
         routes_features.append(
             {
                 "type": "Feature",
-                "id": f"Route_{i}",
+                "id": f"Route_{path_index}",
                 "properties": {},
                 "geometry": {
                     "type": "LineString",
@@ -298,6 +317,7 @@ def get_routes_as_geojson(graph, paths:list, invert=False):
         "features": routes_features
     }
 
+#Deprecated
 def get_routes_geojson_layer(graph, paths, colors, stroke_weight=5, stroke_opacity=1.0):
     
     routes_features = []
@@ -306,7 +326,7 @@ def get_routes_geojson_layer(graph, paths, colors, stroke_weight=5, stroke_opaci
     for i, path in enumerate(paths):
         if len(path) >= 2:
             # For some stupid reason, geojson_layer needs the coordinates in LonLat...
-            route_coordinates = convert_nodes_to_coordinates(graph, path, invert=True)
+            route_coordinates = get_node_coordinates(graph, path, invert=True)
             routes_features.append(
                 {
                     "type": "Feature",
@@ -318,7 +338,7 @@ def get_routes_geojson_layer(graph, paths, colors, stroke_weight=5, stroke_opaci
                     }
                 }
             )
-        origin_latlon = convert_nodes_to_coordinates(graph, path[0])
+        origin_latlon = get_node_coordinates(graph, path[0])
         routes_origins.append(origin_latlon)
 
     if len(routes_features) > 0:
@@ -353,7 +373,7 @@ def show_routes_in_google_maps_widget(graph, center, paths:list, colors:list=['r
     )
 
     geojson_layer, origins_layer = get_routes_geojson_layer(graph, paths, colors)
-    pinned_nodes_coordinates = convert_nodes_to_coordinates(graph, pinned_nodes)
+    pinned_nodes_coordinates = get_node_coordinates(graph, pinned_nodes)
 
     if geojson_layer: fig.add_layer(geojson_layer)
     if origins_layer: fig.add_layer(origins_layer)
@@ -415,60 +435,206 @@ def get_nearest_road_coordinates(latlon):
 
 
 # Calculates the road node closest to the origin coordinates (lat, lon)
-def get_projection_point_latlon(target, a, b):
+def get_projection_point(target:list, a:list, b:list, coordinates_format='latlon'):
     """
     Given 2 coordinate points (`a` and `b`),
-    returns the latlon of the projection of the 
+    returns the coordinates of the projection of the 
     point `target` in the vector `a`--->`b`
     """
-    # Calculate vectors
-    a_b = np.array(b) - np.array(a)
-    a_target = np.array(target) - np.array(a)
+
+    if coordinates_format=='lonlat':
+        # converting to latlon
+        target.reverse()
+        a.reverse()
+        b.reverse()
     
-    # Calculate the dot product of AC and AB
-    dot_product = np.dot(a_target, a_b)
+    point = Point(target) 
+    line = LineString((a,b))
+    dist = line.project(point) #numpy float
+    projected_point = list(line.interpolate(dist).coords)
+    projected_point = list(projected_point[0])
     
-    # Calculate the squared magnitude of AB
-    magnitude_squared = np.dot(a_b, a_b)
-    
-    # Calculate the projection of AC onto AB
-    projection = dot_product / magnitude_squared * a_b
-    
-    # Calculate the projected point P by adding the projection to A
-    latlon = np.array(a) + projection
-    
-    return tuple(latlon)
+    return projected_point
 
 
-def insert_node_in_graph_v2(graph, node_id, latlon, log=False): # TAKES 1 SECOND LESS THAT V1
+def get_point_to_edge_distance(point, edge):
+    x, y = point
+    edge_start, edge_end = edge
+    x1, y1 = edge_start
+    x2, y2 = edge_end
+    
+    # Calculate the coefficients of the line equation ax + by + c = 0
+    a = y1 - y2
+    b = x2 - x1
+    c = (x1 * y2) - (x2 * y1)
+    
+    # Calculate the perpendicular distance from the point to the line
+    return abs((a*x + b*y + c)) / math.sqrt(a**2 + b**2)
 
+
+def find_nodes_by_attributes(graph, attributes):
+    if not configuration_completed: return print('Please call configure() first!')
+    matching_nodes = []
+    for node in graph.nodes(data=True):
+        match_status = False
+        # node MUST match all the give attributes values
+        for key, value in attributes.items():
+            # node[0] corresponds to the ndoe id, node[1] correspondes to the data of the node
+            if node[1][key] == value:
+                match_status = True
+            else:
+                match_status = False
+        if match_status: matching_nodes.append(node)
+    return matching_nodes
+
+
+def insert_new_node_in_edge(graph, node_id, node_latlon, edge):
+    """
+    Returns the id of the inserted node and a list of added edges. If a node that matches the coordinates of the node to insert
+    then it returns the id of that matching node and and empty list since there was no edges added
+    """
+    added_edges = []
+
+    # If node already exists in the network then do nothing
+    matching_nodes = find_nodes_by_attributes(graph, {'y': node_latlon[0], 'x': node_latlon[1]})
+    if matching_nodes:
+        print(f"Node already in Network")
+        return matching_nodes[0][0], added_edges # Returning the id of the found node
+
+    
+    edge_attrs = graph[edge[0]][edge[1]][0]  # Copy edge attributes
+    with_geometry = False
+
+    if 'geometry' in edge_attrs:
+        with_geometry = True
+        # Inside the Geometry we are using LONLAT format for coordinates
+        node_lonlat = list(node_latlon)
+        node_lonlat.reverse() #to LON LAT
+
+        point = Point(node_lonlat) 
+
+        geometry_coords = list(edge_attrs['geometry'].coords)
+
+        sub_edges = []
+        distances = []
+        projected_points = []
+
+        for i in range(len(geometry_coords)-1):
+            sub_edge = [list(geometry_coords[i]), list(geometry_coords[i+1])]
+
+            # THIS IS HOW YOU PROJECT A POING TO A LINE
+            sub_line_string = LineString(sub_edge)
+            dist = sub_line_string.project(point) #numpy float
+            projected_point = list(sub_line_string.interpolate(dist).coords)
+            projected_point = list(projected_point[0])
+            
+            sub_edges.append(sub_edge)
+            distances.append(get_distance_between_points(node_lonlat, projected_point, coordinates_format='lonlat'))
+            projected_points.append(projected_point)
+
+            # print(sub_edges[-1], distances[-1], projected_points[-1])
+
+        distances = np.array(distances)
+        min_dist_index = np.argmin(distances)
+        new_node_lonlat = projected_points[min_dist_index]
+        new_node_index = min_dist_index + 1 # we add one becase we are gonna insert this point after the start point of the closest sub edge
+        geometry_coords.insert(new_node_index, tuple(new_node_lonlat))
+        
+        linestring_0_n = LineString(geometry_coords[:new_node_index+1])
+        linestring_n_1 = LineString(geometry_coords[new_node_index:])
+        linestring_1_n = linestring_n_1.reverse()
+        linestring_n_0 = linestring_0_n.reverse()
+
+        node_latlon = new_node_lonlat
+        node_latlon.reverse()
+        node_latlon = tuple(node_latlon)
+
+
+    # Adding node
+    graph.add_node(node_id, y=node_latlon[0], x=node_latlon[1], street_count=2)
+
+    # Adding new edges
+    attributes = {**edge_attrs,
+        'length': get_distance_between_nodes(graph, edge[0], node_id),
+        'bearing': get_edge_bearing(graph, edge[0], node_id),
+    }
+    if with_geometry: attributes['geometry'] = linestring_0_n
+    graph.add_edge(edge[0], node_id, **attributes)
+
+
+    attributes = {**edge_attrs,
+        'length': get_distance_between_nodes(graph, node_id, edge[1]),
+        'bearing': get_edge_bearing(graph, node_id, edge[1]),
+    }
+    if with_geometry: attributes['geometry'] = linestring_n_1
+    graph.add_edge(node_id, edge[1], **attributes)
+
+
+    added_edges += [(edge[0], node_id), (node_id, edge[1])]
+
+    if edge_attrs['oneway'] == False:  # is the edge bi directional? then add reversed edges
+        attributes = {**edge_attrs,
+            'length': get_distance_between_nodes(graph, edge[1], node_id),
+            'bearing': get_edge_bearing(graph, edge[1], node_id)
+        }
+        if with_geometry: attributes['geometry'] = linestring_1_n
+        graph.add_edge(edge[1], node_id, **attributes)
+
+        attributes = {**
+            edge_attrs,
+            'length': get_distance_between_nodes(graph, node_id, edge[0]),
+            'bearing': get_edge_bearing(graph, node_id, edge[0])
+        }
+        if with_geometry: attributes['geometry'] = linestring_n_0
+        graph.add_edge(node_id, edge[0], **attributes)
+
+        added_edges += [(edge[1], node_id), (node_id, edge[0])]
+
+        graph.remove_edge(edge[1], edge[0])  # Remove original edge from graph
+
+    graph.remove_edge(edge[0], edge[1])  # Remove original edge from graph
+
+    print('INSERTED!')
+    return node_id, added_edges
+
+
+def insert_node_in_graph_v2(graph, node_id, latlon, log=False): 
+    # This implementation removes the need of requesting to the Google API
+    # for the latitude and longitude of the nearest edge poing (that will be the coordinates of the new nodes)
+    # It's 1 second faster
+    
     # Getting the nearest edge
     added_edges = []
-    nearest_edge = ox.distance.nearest_edges(graph, latlon[1], latlon[0]) # takes time as well
-    node_latlon = get_projection_point_latlon(
+    nearest_edge = ox.distance.nearest_edges(graph, latlon[1], latlon[0])
+    node_latlon = get_projection_point(
         latlon,
-        convert_nodes_to_coordinates(graph, nearest_edge[0]),
-        convert_nodes_to_coordinates(graph, nearest_edge[1])
+        get_node_coordinates(graph, nearest_edge[0]),
+        get_node_coordinates(graph, nearest_edge[1])
     )
-    print(node_latlon)
-
-    if log: print("\nOld origin edge data:")
-    if log: print(graph[nearest_edge[0]][nearest_edge[1]][0])
+ 
+    if log:
+        print("\nOld origin edge data:")
+        if 'geometry' in graph[nearest_edge[0]][nearest_edge[1]][0]:
+            print(graph[nearest_edge[0]][nearest_edge[1]][0])
+        else: print('No geometry found')
     
     # Inserting origin and destination nodes into respective edges
-    added_edges += insert_new_node_in_edge(
+    node_id, edges = insert_new_node_in_edge(
         graph,
         node_id,
         node_latlon,
         nearest_edge
     )
+    added_edges += edges
 
     if log:
         print("\nNew edges data:")
         for edge in added_edges:
-            print(f'{edge} {graph[edge[0]][edge[1]][0]}')
+            if 'geometry' in graph[edge[0]][edge[1]][0]:
+                print(f'{edge} {graph[edge[0]][edge[1]][0]}')
+            else: print('No geometry found')
 
-    return graph
+    return node_id
 
 
 def insert_node_in_graph(graph, node_id, node_latlon, log=False):
@@ -478,25 +644,26 @@ def insert_node_in_graph(graph, node_id, node_latlon, log=False):
 
     # Getting the nearest edge of origin and destination (LatLon) respectively
     added_edges = []
-    nearest_edge = ox.distance.nearest_edges(graph, road_latlon[1], road_latlon[0])
+    nearest_edge = ox.distance.nearest_edges(graph, road_latlon[1], road_latlon[0]) # TAKES THE MOST TIME
 
     if log: print("\nOld origin edge data:")
     if log: print(graph[nearest_edge[0]][nearest_edge[1]][0])
     
     # Inserting origin and destination nodes into respective edges
-    added_edges += insert_new_node_in_edge(
+    node_id, edges = insert_new_node_in_edge(
         graph,
         node_id,
-        road_latlon,
+        node_latlon,
         nearest_edge
     )
+    added_edges += edges
 
     if log:
         print("\nNew edges data:")
         for edge in added_edges:
             print(f'{edge} {graph[edge[0]][edge[1]][0]}')
 
-    return graph
+    return node_id
 
 
 # Deprecated
