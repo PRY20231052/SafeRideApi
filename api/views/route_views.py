@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from api.models.location import Location
 from api.serializers.location_serializer import LocationSerializer
 from api.serializers.route_serializer import RouteSerializer
+from rest_framework.permissions import IsAuthenticated
 from bike_router_ai.bike_router_env import BikeRouterEnv
 from bike_router_ai import bike_maps as bm
 import os
@@ -18,6 +19,7 @@ base_env = BikeRouterEnv(
 class RouteViewSet(viewsets.ViewSet):
 
     serializer_class = RouteSerializer
+    permission_classes = ()
 
     def create(self, request):
         serializer = self.serializer_class(data=request.data)

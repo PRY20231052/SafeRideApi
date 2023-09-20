@@ -2,12 +2,14 @@ import os
 from rest_framework import viewsets
 from rest_framework.response import Response
 from api.serializers.trip_serializer import TripSerializer
+from rest_framework.permissions import IsAuthenticated
 from bike_router_ai.bike_router_env import BikeRouterEnv
 from bike_router_ai import bike_maps as bm
 
 class TripViewSet(viewsets.ViewSet):
 
     serializer_class = TripSerializer
+    permission_classes = ()
 
     def create(self, request):
         serializer = self.serializer_class(data=request.data)
