@@ -29,7 +29,6 @@ def load_graph_from_file(path):
 
 
 def get_max_node_neighbors(graph):
-    if not configuration_completed: return print('Please call configure() first!')
     max_n = 0
     for node in graph.nodes():
         num_neighbours = len(list(graph.neighbors(node)))
@@ -40,7 +39,6 @@ def get_max_node_neighbors(graph):
 
 
 def get_distance_between_nodes(graph, node1, node2):
-    if not configuration_completed: return print('Please call configure() first!')
     return ox.distance.great_circle_vec(
         graph.nodes[node1]['y'],
         graph.nodes[node1]['x'],
@@ -55,7 +53,7 @@ def calculate_relative_bearing(graph, u, v, ref):
     in reference to the node 'ref'
     Returns and angle in degrees
     """
-    if not configuration_completed: return print('Please call configure() first!')
+    
     bearing_u_v = ox.bearing.calculate_bearing(
         graph.nodes[u]['y'],
         graph.nodes[u]['x'],
@@ -205,7 +203,6 @@ def get_node_coordinates(graph, nodes, invert=False):
 
 
 def get_distance_between_points(point1, point2, coordinates_format='latlon'):
-    if not configuration_completed: return print('Please call configure() first!')
     if coordinates_format == 'latlon':
         return ox.distance.great_circle_vec(
             point1[0],
@@ -319,7 +316,7 @@ def get_routes_as_geojson(graph, paths:list, invert=False, allow_curves=True):
 
 #Deprecated
 def get_routes_geojson_layer(graph, paths, colors, stroke_weight=5, stroke_opacity=1.0):
-    
+    if not configuration_completed: return print('Please call configure() first!')
     routes_features = []
     routes_origins = []
 
@@ -364,7 +361,7 @@ def get_routes_geojson_layer(graph, paths, colors, stroke_weight=5, stroke_opaci
     return geojson_layer, origins_layer
 
 def show_routes_in_google_maps_widget(graph, center, paths:list, colors:list=['red'], pinned_nodes:list=[], width=1300, height=800, zoom=15):
-    
+    if not configuration_completed: return print('Please call configure() first!')
     # Creating Gmaps Figure
     fig = gmaps.figure(
         center=center,
@@ -405,7 +402,6 @@ def get_shortest_path(graph, origin, dest):
 
 
 def get_graph(place=None, center_latlon=None, dist=1000, network_type="walk", simplify=True):
-    if not configuration_completed: return print('Please call configure() first!')
     if place:
         graph = ox.graph_from_place(
             place,
@@ -473,7 +469,6 @@ def get_point_to_edge_distance(point, edge):
 
 
 def find_nodes_by_attributes(graph, attributes):
-    if not configuration_completed: return print('Please call configure() first!')
     matching_nodes = []
     for node in graph.nodes(data=True):
         match_status = False
@@ -484,8 +479,15 @@ def find_nodes_by_attributes(graph, attributes):
                 match_status = True
             else:
                 match_status = False
-        if match_status: matching_nodes.append(node)
+        if match_status: matching_nodes.append(node[0])
     return matching_nodes
+
+
+def search_node_with_similar_coordinates(graph, node_latlon, proximity_tolerance):
+    for node in graph.nodes(data=True):
+        distance = get_distance_between_points(node_latlon, (node[1]['y'], node[1]['x']))
+        if distance < proximity_tolerance:
+            return node[0]
 
 
 def insert_new_node_in_edge(graph, node_id, node_latlon, edge):
@@ -496,10 +498,10 @@ def insert_new_node_in_edge(graph, node_id, node_latlon, edge):
     added_edges = []
 
     # If node already exists in the network then do nothing
-    matching_nodes = find_nodes_by_attributes(graph, {'y': node_latlon[0], 'x': node_latlon[1]})
-    if matching_nodes:
-        print(f"Node already in Network")
-        return matching_nodes[0][0], added_edges # Returning the id of the found node
+    matching_node = search_node_with_similar_coordinates(graph, node_latlon, proximity_tolerance=3)
+    if matching_node:
+        print(f"Found a close node already in Network")
+        return matching_node, added_edges # Returning the id of the found node
 
     
     edge_attrs = graph[edge[0]][edge[1]][0]  # Copy edge attributes
@@ -548,7 +550,6 @@ def insert_new_node_in_edge(graph, node_id, node_latlon, edge):
         node_latlon = new_node_lonlat
         node_latlon.reverse()
         node_latlon = tuple(node_latlon)
-
 
     # Adding node
     graph.add_node(node_id, y=node_latlon[0], x=node_latlon[1], street_count=2)
