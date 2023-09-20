@@ -12,7 +12,7 @@ import copy
 
 # Initializing the Env
 base_env = BikeRouterEnv(
-    graphml_path=f'{os.getcwd()}/bike_router_ai/graph_SB_SI_w_cycleways.graphml',
+    graphml_path=f'{os.getcwd()}/bike_router_ai/graph_SB_w_cycleways_simplified.graphml',
     crime_data_excel_path=f'{os.getcwd()}/bike_router_ai/criminal_data.xlsx',
 )
 
@@ -49,15 +49,16 @@ class RouteViewSet(viewsets.ViewSet):
                 coords_1 = get_node_coordinates(env.graph, edge[1])
                 source = Location(latitude=coords_0[0], longitude=coords_0[1])
                 target = Location(latitude=coords_1[0], longitude=coords_1[1])
+                if 'geometry' in attr: attr.pop('geometry')
                 route.path_edges.append(Edge(source=source, target=target, attributes=attr))
 
-            print(route.distance_meters)
             route.path_nodes = [
                 Location(
                     latitude=env.graph.nodes[node]['y'],
                     longitude=env.graph.nodes[node]['x'],
                 ) for node in generated_path
             ]
+            
             avg_km_s = 18
             route.eta_seconds = route.distance_meters/(avg_km_s*1000/3600) #converting to m/s
             # route.arrival_time = None
