@@ -3,7 +3,7 @@ from rest_framework import viewsets
 from rest_framework.response import Response
 from api.serializers.trip_serializer import TripSerializer
 from bike_router_ai.bike_router_env import BikeRouterEnv
-from bike_router_ai import bike_maps as bm
+from bike_router_ai.graph_utils import *
 
 class TripViewSet(viewsets.ViewSet):
 
@@ -23,7 +23,7 @@ class TripViewSet(viewsets.ViewSet):
                 destination_latlon=(trip.waypoints[-1].latitude, trip.waypoints[-1].longitude)
             )
             # TODO: implement model computation of the route
-            trip.routes_geojson = bm.get_routes_as_geojson(env.graph, [env.shortest_path])
+            trip.routes_geojson = get_routes_as_geojson(env.graph, [env.shortest_path])
 
 
             # the serializer variable saves every change done to the route instance
