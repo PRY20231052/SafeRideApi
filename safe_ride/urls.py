@@ -23,7 +23,9 @@ from rest_framework_simplejwt.views import (
 )
 
 from rest_framework.routers import DefaultRouter
-from api.user_views import UserViewSet
+from api.views.user_views import UserListViewSet
+from api.views.signup_views import UserSignUpViewSet
+from django.conf.urls import include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -35,6 +37,7 @@ urlpatterns = [
 
 
 router = DefaultRouter()
-router.register('user', UserViewSet, basename='user')
+router.register('userlist', UserListViewSet, basename='user')
+router.register('register', UserSignUpViewSet)
 
 urlpatterns += router.urls
