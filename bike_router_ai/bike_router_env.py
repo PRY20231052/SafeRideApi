@@ -88,7 +88,7 @@ class BikeRouterEnv(Env):
             ), # 0=none, 1=unsafe, 2=safe
             'maxspeed': Box(
                 low=-1,
-                high=100,
+                high=120,
                 dtype=np.int8
             ), # Max car speed
             'relative_bearing': Box(
@@ -157,7 +157,7 @@ class BikeRouterEnv(Env):
     def reset(self, seed=None, options=None):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
-
+        
         self.went_too_far = False
         self.revisiting = False
         self.arrived = False
@@ -279,7 +279,7 @@ class BikeRouterEnv(Env):
                 self.graph.nodes[self.destination_node]['x']
             ],
             'steps_count': len(self.path) - 1,
-            'steps_tolerance': int(len(self.shortest_path) * 1.1),
+            'steps_tolerance': int(len(self.shortest_path) * 1.2),
             'distance_to_destination': get_distance_between_nodes(
                 self.graph, self.current_node, self.destination_node
             ),
@@ -306,11 +306,11 @@ class BikeRouterEnv(Env):
 
     def _calculate_reward_based_on_orientation(self, relative_bearing, bearing_sweetspot):
         if 0 <= relative_bearing <= bearing_sweetspot or 360-bearing_sweetspot <= relative_bearing <= 360:
-            return 10
+            return 8
         elif bearing_sweetspot < relative_bearing <= 90 or 270 <= relative_bearing < 360-bearing_sweetspot:
-            return 5
+            return 3
         else:
-            return -10
+            return -5
 
 
     def calculate_distance_tolerance(self, distance):
@@ -327,7 +327,7 @@ class BikeRouterEnv(Env):
         reward = 0
 
         if self._is_close_to_crime_point(obs['current_latlon']):
-            reward -= 5
+            reward -= 3
         else: reward += 5
 
         # if we exceed the amount of steps done in the shortest_path
@@ -335,7 +335,7 @@ class BikeRouterEnv(Env):
         # but it will increase over time.
         if obs['steps_count'] > obs['steps_tolerance']:
             exceeded_steps = obs['steps_count'] - obs['steps_tolerance']
-            if exceeded_steps > 0: reward -= exceeded_steps/2 # More steps means even less reward
+            if exceeded_steps > 0: reward -= exceeded_steps/4 # More steps means even less reward
 
         if obs['previous_step']['maxspeed'] < 40:
             reward += 3
@@ -350,7 +350,7 @@ class BikeRouterEnv(Env):
         if obs['distance_to_destination'] < get_distance_between_nodes(
             self.graph, self.path[-2], self.destination_node
         ):
-            reward += 7
+            reward += 8
         else:
             reward -= 3
 
@@ -358,23 +358,23 @@ class BikeRouterEnv(Env):
         # relative_bearing(to the destination) == orientation
         reward += self._calculate_reward_based_on_orientation(
             obs['previous_step']['relative_bearing'],
-            bearing_sweetspot=25
+            bearing_sweetspot=30
         )
 
         # Episode Termination conditions
         if self.current_node == self.destination_node:
             self.arrived = True
-            reward += 1000
+            reward += 180
             terminated = True
         # If revisiting node
         elif len(self.path) > 1 and obs['previous_step']['end_node_visited_status'] == 1: 
             self.revisiting = True
-            reward -= 300
+            reward -= 80
             terminated = True
         # If it's going too far away
         elif obs['distance_to_destination'] > self.distance_origin_destination * self.distance_tolerance_multiplier:
             self.went_too_far = True
-            reward -= 200
+            reward -= 60
             terminated = True
         else:
             terminated = False
@@ -385,7 +385,7 @@ class BikeRouterEnv(Env):
             self.path += get_shortest_path(self.graph, self.path[-1], self.destination_node)
             self.arrived = True
 
-        # Meaning that the episode got stuck (not supported by keras-rl2)
+        # Meaning that the episode got stuck (not supported)
         truncated = False
 
         info = self._get_info()
@@ -408,8 +408,8 @@ class BikeRouterEnv(Env):
         # Model predicted a non-valid action
         if action >= len(self.current_node_neighbours):
             self.selected_invalid_action = True
-            #                obs, reward, terminated, truncated, info
-            return self._get_obs(), -300, True, False, self._get_info()
+            #                obs, reward, termi, trunc, info
+            return self._get_obs(), -100, True, False, self._get_info()
         
         # Apply action
         self.current_node = self.current_node_neighbours[action]

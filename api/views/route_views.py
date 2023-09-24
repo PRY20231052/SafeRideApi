@@ -13,7 +13,7 @@ import copy
 
 # Initializing the Env
 base_env = BikeRouterEnv(
-    graphml_path=f'{os.getcwd()}/bike_router_ai/graph_SB_w_cycleways_simplified.graphml',
+    graphml_path=f'{os.getcwd()}/bike_router_ai/graph_SB_SI_w_cycleways_simplified.graphml',
     crime_data_excel_path=f'{os.getcwd()}/bike_router_ai/criminal_data.xlsx',
 )
 
@@ -39,6 +39,7 @@ class RouteViewSet(viewsets.ViewSet):
 
             # TODO: implement model computation of the route
             generated_path = env.shortest_path
+            route.path_geojson = get_routes_as_geojson(env.graph, [generated_path])
             
             route.path_edges = []
             edges = path_to_edges(generated_path)
@@ -51,7 +52,7 @@ class RouteViewSet(viewsets.ViewSet):
                 coords_1 = get_node_coordinates(env.graph, edge[1])
                 source = Location(latitude=coords_0[0], longitude=coords_0[1])
                 target = Location(latitude=coords_1[0], longitude=coords_1[1])
-                if 'geometry' in attr: attr.pop('geometry')
+                if 'geometry' in attr: attr.pop('geometry') #######
                 route.path_edges.append(Edge(source=source, target=target, attributes=attr))
 
             route.path_nodes = [
@@ -64,8 +65,7 @@ class RouteViewSet(viewsets.ViewSet):
             avg_km_s = 18
             route.eta_seconds = route.distance_meters/(avg_km_s*1000/3600) #converting to m/s
             # route.arrival_time = None
-            route.path_geojson = get_routes_as_geojson(env.graph, [generated_path])
-
+            
             # the serializer variable saves every change done to the route instance
             return Response(serializer.data, status=201) # 201 means CREATED, while 200 only means OK
         return Response(serializer.errors, status=400)
