@@ -47,11 +47,15 @@ def get_distance_between_nodes(graph, node1, node2):
     )
 
 
-def calculate_relative_bearing(graph, u, v, ref):
+def calculate_edge_relative_bearing(graph, u, v, ref):
     """
-    Calcualtes the relative bearing of edge u,v,
-    in reference to the node 'ref'
-    Returns and angle in degrees
+    graph: the graph where the edge `(u, v)` and the node `ref` exist.
+
+    u: starting node of given edge
+    v: end node of given edge
+    ref: node from reference towards where the bearing will be computed
+
+    Given a graph edge `(u,v)`, calculates the relative bearing angle in degrees to the reference node `ref`
     """
     
     bearing_u_v = ox.bearing.calculate_bearing(
@@ -69,6 +73,34 @@ def calculate_relative_bearing(graph, u, v, ref):
     relative_bearing = bearing_u_v - bearing_u_ref
     relative_bearing = (relative_bearing + 360) % 360
     return relative_bearing
+
+
+def calculate_line_relative_bearing_to_point(line_start, line_end, ref_point):
+    """
+    line_start: starting point of the line in latlon
+    line_end: end point of the line in latlon
+    ref_point: reference point from where the bearing will be computed
+
+    Given the line `(line_start, line_end)`, calculates the relative bearing angle in degrees to the reference node `ref_point`
+    """
+    
+    # NEEDS TO BE IN LAT LON
+    bearing_u_v = ox.bearing.calculate_bearing(
+        line_start[0],
+        line_start[1],
+        line_end[0],
+        line_end[1],
+    )
+    bearing_u_ref = ox.bearing.calculate_bearing(
+        line_start[0],
+        line_start[1],
+        ref_point[0],
+        ref_point[1],
+    )
+    relative_bearing = bearing_u_v - bearing_u_ref
+    relative_bearing = (relative_bearing + 360) % 360
+    return relative_bearing
+
 
 
 def get_edge_bearing(graph, node1, node2):
@@ -184,18 +216,18 @@ def get_node_neighbours(graph, node):
     return steps
 
 
-def get_node_coordinates(graph, nodes, invert=False):
+def get_node_coordinates(graph, nodes, coords_format='latlon'):
     """
     node: node or a list of nodes from the graph
     invert: if True, coords will be return as 'lonlat' instead of deafault 'latlon'
     """
 
     if type(nodes) != type([]): # if nodes isnt a list, so its a single node
-        return [graph.nodes[nodes]['x'], graph.nodes[nodes]['y']] if invert else [graph.nodes[nodes]['y'], graph.nodes[nodes]['x']]
+        return [graph.nodes[nodes]['x'], graph.nodes[nodes]['y']] if coords_format=='lonlat' else [graph.nodes[nodes]['y'], graph.nodes[nodes]['x']]
     
     coordinates_list = []
     for node in nodes:
-        if invert: coords = [graph.nodes[node]['x'], graph.nodes[node]['y']]
+        if coords_format=='lonlat': coords = [graph.nodes[node]['x'], graph.nodes[node]['y']]
         else: coords = [graph.nodes[node]['y'], graph.nodes[node]['x']]
         coordinates_list.append(coords)
 
@@ -262,8 +294,64 @@ def get_path_edges_attrs(graph, path):
         edges_attrs.append(attrs)
     return edges_attrs
 
+def convert_edge_to_coordinates(graph, edge, coords_format='latlon', allow_curves=True, add_end_node=False):
+    """
+    returns a list with the coordinates compousing the edge
+    if the edge doesn't have a geometry attribute, means that the edge is straight so it will only return
+    the coordinates of the 2 nodes of the edge
+    """
+    u, v = edge
+    # if it's not the last node and its edge doesn't has a geometry attr (meaning it's a curved line)
+    # The 'geometry' edge attribute refers to the the points (IN LONLAT FORMAT) needed to recreate the curved line,
+    # for the lines inside a simplify map
+    coordinates = []
+    if allow_curves and 'geometry' in graph[u][v][0]:
+        geometry_coords = list(graph[u][v][0]['geometry'].coords)
 
-def get_routes_as_geojson(graph, paths:list, invert=False, allow_curves=True):
+        # SOME TIMES curves are showing in different order
+        # Assuming that is not that fucked up and that only thing happening is that
+        # they are just in reverse, and not in weird order, this should do the trick
+
+        # if the geometry coords are backwards
+        if get_node_coordinates(graph, u, coords_format) == list(geometry_coords[-1]):
+            geometry_coords.reverse()
+
+        # we don't add the last point of the curved since it's the same as the end node of the whole edge
+        # Same point that's gonna be added in the next iteration for the next edge
+        for j in range(len(geometry_coords)-1):
+            if coords_format=='lonlat': coordinates.append(list(geometry_coords[j]))
+            else: coordinates.append([geometry_coords[j][1], geometry_coords[j][0]])
+
+    else:
+        coordinates.append(get_node_coordinates(graph, u, coords_format))
+        if add_end_node: coordinates.append(get_node_coordinates(graph, v, coords_format))
+
+    return coordinates
+
+
+def get_route_polyline_coordinates(graph, path:list, coords_format='latlon', allow_curves=True):
+    """
+    graph: a NetworkX Directed Graph of the city
+    path: a list of node_ids from the provided graph
+    coords_format: default is 'latlon', can be also 'lonlat'
+
+    Returns a list of points coordinates that composes the polyline of the route
+    """
+    route_coordinates = []
+    for i, node in enumerate(path):
+        if i < len(path)-1:
+            route_coordinates+=convert_edge_to_coordinates(
+                graph,
+                edge=(node, path[i+1]),
+                coords_format=coords_format,
+                allow_curves=allow_curves
+            )
+        else:
+            route_coordinates.append(get_node_coordinates(graph, node, coords_format))
+    return route_coordinates
+
+
+def get_routes_as_geojson(graph, paths:list, coords_format='latlon', allow_curves=True):
     """
     graph: a NetworkX Directed Graph of the city
     paths: path or list of paths to display in the map, where each path is a list of node_ids from the provided graph
@@ -273,39 +361,16 @@ def get_routes_as_geojson(graph, paths:list, invert=False, allow_curves=True):
     """
     routes_features = []
     for path_index, path in enumerate(paths):
-        route_coordinates = []
-        for i, node in enumerate(path):
-            # if it's not the last node and its edge doesn't has a geometry attr (meaning it's a curved line)
-            # The 'geometry' edge attribute refers to the the points (IN LONLAT FORMAT) needed to recreate the curved line,
-            # for the lines inside a simplify map
-            if allow_curves and i < len(path)-1 and 'geometry' in graph[node][path[i+1]][0]:
-                geometry_coords = list(graph[node][path[i+1]][0]['geometry'].coords)
-
-                # SOME TIMES curves are showing in different order
-                # Assuming that is not that fucked up and that only thing happening is that
-                # they are just in reverse, and not in weird order, this should do the trick
-
-                # if the geometry coords are backwards
-                if get_node_coordinates(graph, node, invert=True) == list(geometry_coords[-1]):
-                    geometry_coords.reverse()
-
-                # we don't add the last point of the curved since it's the same as the end node of the whole edge
-                # Same point that's gonna be added in the next iteration for the next edge
-                for j in range(len(geometry_coords)-1):
-                    if invert: route_coordinates.append(list(geometry_coords[j]))
-                    else: route_coordinates.append([geometry_coords[j][1], geometry_coords[j][0]])
-
-            else:
-                route_coordinates.append(get_node_coordinates(graph, node, invert=invert))
-
         routes_features.append(
             {
                 "type": "Feature",
-                "id": f"Route_{path_index}",
+                "id": f"route_{path_index}",
                 "properties": {},
                 "geometry": {
                     "type": "LineString",
-                    "coordinates": route_coordinates
+                    "coordinates": get_route_polyline_coordinates(
+                        graph, path, coords_format=coords_format, allow_curves=allow_curves
+                    )
                 }
             }
         )
@@ -313,6 +378,174 @@ def get_routes_as_geojson(graph, paths:list, invert=False, allow_curves=True):
         "type": "FeatureCollection",
         "features": routes_features
     }
+
+
+# NOTE: NOT WORKING BECASE OF UNKNOWN
+def generate_route_directions_v2(graph, path, coords_format='latlon'):
+    directions = []
+    ending_action = ''
+    current_street_name = ""
+    covered_edges_indexes = []
+    street_coords = []
+    polyline_index = 0
+    unknown_streets_counter = 0
+
+    for i, node in enumerate(path):
+        if i < len(path)-1:
+            attrs = graph[node][path[i+1]][0]
+            # This wont work for 2 consecutives edges with no names
+            if 'name' not in attrs:
+                attrs['name'] = f'Unknown_{unknown_streets_counter}'
+
+            current_edge_coords = convert_edge_to_coordinates(
+                graph,
+                edge=(node, path[i+1]),
+                coords_format=coords_format,
+                add_end_node=True, #this is so we always have at least 2 coordinates per edge to calculate the bearing
+            )
+
+            if i == 0:
+                current_street_name = attrs['name']
+            else:
+                previous_point = street_coords[-1]
+                direction_angle = calculate_line_relative_bearing_to_point(
+                    current_edge_coords[0], current_edge_coords[1], previous_point
+                )
+                # if the direction_angle is 180 it means that the line continues going forward
+                # if it goes to 0 - 90 - 180 means made a turn to left
+                # if its between 180 - 270 - 360 means made a turn to left
+                if 160 <= direction_angle <= 200:
+                    ending_action = 'go_straight'
+
+                # NOTE: IT SAYS 0 <= BUT THAT'S NOT 100% CORRECT BECAUSE
+                # IF THE DIRECTION ANGLE IS 0 IT MEANS IT'S GOING BACK
+                # TO THE PREVIOUS POINT WHICH I DON'T EXPECT IT TO HAPPEN
+                # AND I SHOULD GIVE IT A PROPER OUTPUT BUT
+                # ESTOY CANSADO JEFE, SO THIS SHOULD DO IT
+                elif 0 <= direction_angle < 160:
+                    ending_action = 'turn_left'
+                elif 200 < direction_angle < 360:
+                    ending_action = 'turn_right'
+
+
+            if attrs['name'] != current_street_name or ending_action != 'go_straight' and 'Unknown' in current_street_name: # means that we have reached a new direction
+                directions.append(
+                    {
+                        'ending_action': ending_action,
+                        'street_name': current_street_name,
+                        'covered_edges_indexes': covered_edges_indexes,
+                        'covered_polyline_points_indexes': [j for j in range(polyline_index, polyline_index + len(street_coords))],
+                    }
+                )
+                print(directions[-1])
+                if 'Unknown' in current_street_name: unknown_streets_counter+=1
+                polyline_index = directions[-1]['covered_polyline_points_indexes'][-1] + 1
+                current_street_name = attrs['name']
+                street_coords = []
+                covered_edges_indexes = []
+
+            covered_edges_indexes.append(i)
+            current_edge_coords.pop() # don't need the end node of the coords
+            street_coords += current_edge_coords
+
+        # only for the last index
+        elif i == len(path)-1:
+            covered_edges_indexes.append(i)
+            street_coords.append(get_node_coordinates(graph, node))
+            directions.append(
+                {
+                    'ending_action': 'arrive', # since it's the ending node of the path, it means it's the destination
+                    'street_name': current_street_name,
+                    'covered_edges_indexes': covered_edges_indexes,
+                    'covered_polyline_points_indexes': [j for j in range(polyline_index, polyline_index + len(street_coords))],
+                }
+            )
+            print(directions[-1])
+            
+    # directions.pop(0) # we remove the first one since it contains the dummy direction
+    return directions
+
+
+def generate_route_directions(graph, path, coords_format='latlon'):
+    directions = []
+
+    current_street_name = ""
+    covered_edges_indexes = []
+    street_coords = []
+    polyline_index = 0
+
+    for i, node in enumerate(path):
+        if i < len(path)-1:
+            attrs = graph[node][path[i+1]][0]
+            if 'name' not in attrs: attrs['name'] = "Unknown"
+            if i == 0: current_street_name = attrs['name']
+            
+            if attrs['name'] != current_street_name: # means that we have reached a new direction
+                previous_point = street_coords[-1]
+                current_edge_points = convert_edge_to_coordinates(
+                    graph,
+                    edge=(node, path[i+1]),
+                    coords_format=coords_format,
+                    add_end_node=True, #this is so we always have at least 2 coordinates per edge to calculate the bearing
+                )
+                direction_angle = calculate_line_relative_bearing_to_point(
+                    current_edge_points[0], current_edge_points[1], previous_point
+                )
+                    
+                # if the direction_angle is 180 it means that the line continues going forward
+                # if it goes to 0 - 90 - 180 means made a turn to left
+                # if its between 180 - 270 - 360 means made a turn to left
+                if 160 <= direction_angle <= 200:
+                    ending_action = 'go_straight'
+
+                # NOTE: IT SAYS 0 <= BUT THAT'S NOT 100% CORRECT BECAUSE
+                # IF THE DIRECTION ANGLE IS 0 IT MEANS IT'S GOING BACK
+                # TO THE PREVIOUS POINT WHICH I DON'T EXPECT IT TO HAPPEN
+                # AND I SHOULD GIVE IT A PROPER OUTPUT BUT
+                # ESTOY CANSADO JEFE, SO THIS SHOULD DO IT
+                elif 0 <= direction_angle < 160:
+                    ending_action = 'turn_left'
+                elif 200 < direction_angle < 360:
+                    ending_action = 'turn_right'
+                
+                directions.append(
+                    {
+                        'ending_action': ending_action,
+                        'street_name': current_street_name,
+                        'covered_edges_indexes': covered_edges_indexes,
+                        'covered_polyline_points_indexes': [j for j in range(polyline_index, polyline_index + len(street_coords))],
+                    }
+                )
+                print(directions[-1])
+                polyline_index = directions[-1]['covered_polyline_points_indexes'][-1] + 1
+                current_street_name = attrs['name']
+                street_coords = []
+                covered_edges_indexes = []
+
+            covered_edges_indexes.append(i)
+            street_coords += convert_edge_to_coordinates(
+                graph,
+                edge=(node, path[i+1]),
+                coords_format=coords_format,
+            )
+
+        # only for the last index
+        elif i == len(path)-1:
+            street_coords.append(get_node_coordinates(graph, node))
+            directions.append(
+                {
+                    'ending_action': 'arrive', # since it's the ending node of the path, it means it's the destination
+                    'street_name': current_street_name,
+                    'covered_edges_indexes': covered_edges_indexes,
+                    'covered_polyline_points_indexes': [j for j in range(polyline_index, polyline_index + len(street_coords))],
+                }
+            )
+            print(directions[-1])
+            
+    # directions.pop(0) # we remove the first one since it contains the dummy direction
+    return directions
+
+
 
 #Deprecated
 def get_routes_geojson_layer(graph, paths, colors, stroke_weight=5, stroke_opacity=1.0):
@@ -398,7 +631,6 @@ def plan_path(graph, ori):
 
 def get_shortest_path(graph, origin, dest):
     return ox.distance.shortest_path(graph, origin, dest)
-
 
 
 def get_graph(place=None, center_latlon=None, dist=1000, network_type="walk", simplify=True):

@@ -1,15 +1,16 @@
 from rest_framework import serializers
+from api.models.coordinates import Coordinates
 from api.models.edge import Edge
-from api.models.location import Location
-from api.serializers.location_serializer import LocationSerializer
+from api.serializers.coordinates_serializer import CoordinatesSerializer
 
 class EdgeSerializer(serializers.Serializer):
-    source = LocationSerializer()
-    target = LocationSerializer()
+    source = CoordinatesSerializer()
+    target = CoordinatesSerializer()
     attributes = serializers.DictField()
 
     def create(self, data):
-        source = Location(**data.pop('source'))
-        target = Location(**data.pop('target'))
-        attributes = data.pop('attributes')
-        return Edge(source, target, attributes)
+        return Edge(
+            source=CoordinatesSerializer().create(data.pop('source')),
+            target=CoordinatesSerializer().create(data.pop('target')),
+            attributes=data.pop('attributes')
+        )

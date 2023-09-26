@@ -181,7 +181,7 @@ class BikeRouterEnv(Env):
 
         self.traveled_distance = 0.0
         self.distance_origin_destination = get_distance_between_nodes(self.graph, self.origin_node, self.destination_node)
-        self.distance_tolerance_multiplier = self.calculate_distance_tolerance(self.distance_origin_destination)        
+        self.distance_tolerance_multiplier = self._calculate_distance_tolerance(self.distance_origin_destination)        
 
         self.current_node_neighbours = get_node_neighbours(self.graph, self.current_node) # Defining initial possible steps
         # 1: possible action, 0: impossible action
@@ -250,7 +250,7 @@ class BikeRouterEnv(Env):
             maxspeed = 30 if edge_attributes['highway'] == 'residential' else 50
 
         # relative to the destination
-        relative_bearing = calculate_relative_bearing(self.graph, u, v, self.destination_node)
+        relative_bearing = calculate_edge_relative_bearing(self.graph, u, v, self.destination_node)
 
         return {
             'cycleway_level': int(edge_attributes['cycleway_level']) if 'cycleway_level' in edge_attributes else 0,
@@ -306,14 +306,14 @@ class BikeRouterEnv(Env):
 
     def _calculate_reward_based_on_orientation(self, relative_bearing, bearing_sweetspot):
         if 0 <= relative_bearing <= bearing_sweetspot or 360-bearing_sweetspot <= relative_bearing <= 360:
-            return 8
+            return 10
         elif bearing_sweetspot < relative_bearing <= 90 or 270 <= relative_bearing < 360-bearing_sweetspot:
-            return 3
+            return 4
         else:
             return -5
 
 
-    def calculate_distance_tolerance(self, distance):
+    def _calculate_distance_tolerance(self, distance):
         max_distance = 2000 # Para San Borja
         max_multiplier = 1.7
         min_multiplier = 1.3
@@ -328,7 +328,7 @@ class BikeRouterEnv(Env):
 
         if self._is_close_to_crime_point(obs['current_latlon']):
             reward -= 3
-        else: reward += 5
+        else: reward += 4
 
         # if we exceed the amount of steps done in the shortest_path
         # start taking off rewards. Will be a few points at the beggining
@@ -342,17 +342,17 @@ class BikeRouterEnv(Env):
 
         #0: no cycleway, 1: unsafe cycleway, 2: safe cycle_way
         if obs['previous_step']['cycleway_level'] == 1:
-            reward += 3
+            reward += 2
         elif obs['previous_step']['cycleway_level'] == 2:
-            reward += 5
+            reward += 4
 
         # Reward if distance_to_destination is getting smaller
         if obs['distance_to_destination'] < get_distance_between_nodes(
             self.graph, self.path[-2], self.destination_node
         ):
-            reward += 8
+            reward += 10
         else:
-            reward -= 3
+            reward -= 4
 
         # if it's heading in the direction of the destination
         # relative_bearing(to the destination) == orientation
@@ -364,7 +364,7 @@ class BikeRouterEnv(Env):
         # Episode Termination conditions
         if self.current_node == self.destination_node:
             self.arrived = True
-            reward += 180
+            reward += 200
             terminated = True
         # If revisiting node
         elif len(self.path) > 1 and obs['previous_step']['end_node_visited_status'] == 1: 
@@ -374,7 +374,7 @@ class BikeRouterEnv(Env):
         # If it's going too far away
         elif obs['distance_to_destination'] > self.distance_origin_destination * self.distance_tolerance_multiplier:
             self.went_too_far = True
-            reward -= 60
+            reward -= 80
             terminated = True
         else:
             terminated = False
