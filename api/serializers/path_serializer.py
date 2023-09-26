@@ -3,11 +3,13 @@ from api.models.edge import Edge
 from api.models.path import Path
 from api.models.coordinates import Coordinates
 from api.serializers.coordinates_serializer import CoordinatesSerializer
+from api.serializers.direction_serializer import DirectionSerializer
 from api.serializers.edge_serializer import EdgeSerializer
 
 class PathSerializer(serializers.Serializer):
     nodes = CoordinatesSerializer(many=True)
     edges = EdgeSerializer(many=True)
+    directions = DirectionSerializer(many=True)
     polyline_points = CoordinatesSerializer(many=True)
     
     distance_meters = serializers.FloatField()
@@ -21,6 +23,9 @@ class PathSerializer(serializers.Serializer):
             ],
             edges=[
                 EdgeSerializer().create(edge_data) for edge_data in data.pop('edges')
+            ],
+            directions=[
+                DirectionSerializer().create(direction_data) for direction_data in data.pop('directions')
             ],
             polyline_points=[
                 CoordinatesSerializer().create(point_data) for point_data in data.pop('polyline_points')

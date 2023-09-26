@@ -516,7 +516,6 @@ def generate_route_directions(graph, path, coords_format='latlon'):
                         'covered_polyline_points_indexes': [j for j in range(polyline_index, polyline_index + len(street_coords))],
                     }
                 )
-                print(directions[-1])
                 polyline_index = directions[-1]['covered_polyline_points_indexes'][-1] + 1
                 current_street_name = attrs['name']
                 street_coords = []
@@ -540,7 +539,6 @@ def generate_route_directions(graph, path, coords_format='latlon'):
                     'covered_polyline_points_indexes': [j for j in range(polyline_index, polyline_index + len(street_coords))],
                 }
             )
-            print(directions[-1])
             
     # directions.pop(0) # we remove the first one since it contains the dummy direction
     return directions

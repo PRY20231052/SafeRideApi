@@ -1,6 +1,7 @@
 from datetime import date
 from rest_framework import viewsets
 from rest_framework.response import Response
+from api.models.direction import Direction
 from api.models.edge import Edge
 from api.models.location import Location
 from api.models.path import Path
@@ -72,6 +73,9 @@ class RouteViewSet(viewsets.ViewSet):
                             ) for node in path
                         ],
                         edges=path_edges,
+                        directions=[
+                            Direction(**direction) for direction in generate_route_directions(env.graph, path)
+                        ],
                         polyline_points=[
                             Coordinates(
                                 latitude=point[0],
