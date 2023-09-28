@@ -1,6 +1,8 @@
-class Location:
+from api.models.coordinates import Coordinates
 
-    def __init__(self, latitude, longitude):
-        self.latitude = latitude
-        self.longitude = longitude
+class Location:
+    def __init__(self, coordinates):
+        self.coordinates = coordinates
+
+        self.name = ""
         self.address = ""
