@@ -13,8 +13,8 @@ import copy
 # Initializing the Env
 flatten_base_env = FlattenObservation(
     BikeRouterEnv(
-        graphml_path=f'{os.getcwd()}/bike_router_ai/graph_SB_SI_w_cycleways_simplified.graphml',
-        crime_data_excel_path=f'{os.getcwd()}/bike_router_ai/criminal_data.xlsx',
+        graphml_path=f'{os.getcwd()}/SafeRideApi/bike_router_ai/graph_SB_SI_w_cycleways_simplified.graphml',
+        crime_data_excel_path=f'{os.getcwd()}/SafeRideApi/bike_router_ai/criminal_data.xlsx',
         force_arriving=True,
     )
 )
@@ -23,7 +23,7 @@ class Agent:
     def __init__(self):
         self.env = copy.deepcopy(flatten_base_env)
         self.ppo = PPO.load(
-            path=f'{os.getcwd()}/bike_router_ai/trained_agents/ppo.zip',
+            path=f'{os.getcwd()}/SafeRideApi/bike_router_ai/trained_agents/ppo.zip',
             env=DummyVecEnv([lambda: self.env])
         )
 
