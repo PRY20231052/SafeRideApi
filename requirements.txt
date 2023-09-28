@@ -108,7 +108,6 @@ pytablewriter==0.64.2
 python-dateutil==2.8.2
 python-decouple==3.8
 pytz==2023.3.post1
-pywin32==305.1
 PyYAML==6.0.1
 pyzmq==25.1.0
 requests==2.31.0
