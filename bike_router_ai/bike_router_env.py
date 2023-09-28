@@ -2,9 +2,10 @@ from gymnasium import Env
 from gymnasium.spaces import Discrete, Box, Dict, Tuple
 import numpy as np
 import random
-from bike_router_ai.graph_utils import *
 from decouple import config
 import pandas as pd
+
+from bike_router_ai.graph_utils import *
 
 # Valores maximos y minimos de latitude y longitude de Lima Metropolitana
 MIN_LIM_LAT = -12.25
@@ -229,7 +230,7 @@ class BikeRouterEnv(Env):
         return crime_points
     
 
-    def _is_close_to_crime_point(self, current_latlon, tolerance_radius_meters=100):
+    def _is_close_to_crime_point(self, current_latlon, tolerance_radius_meters=120):
         for crime_point_latlng in self.crime_points:
             distance = get_distance_between_points(current_latlon, crime_point_latlng)
             if distance <= tolerance_radius_meters:
@@ -306,11 +307,11 @@ class BikeRouterEnv(Env):
 
     def _calculate_reward_based_on_orientation(self, relative_bearing, bearing_sweetspot):
         if 0 <= relative_bearing <= bearing_sweetspot or 360-bearing_sweetspot <= relative_bearing <= 360:
-            return 10
+            return 15
         elif bearing_sweetspot < relative_bearing <= 90 or 270 <= relative_bearing < 360-bearing_sweetspot:
-            return 4
+            return 10
         else:
-            return -5
+            return -10
 
 
     def _calculate_distance_tolerance(self, distance):
@@ -327,15 +328,15 @@ class BikeRouterEnv(Env):
         reward = 0
 
         if self._is_close_to_crime_point(obs['current_latlon']):
-            reward -= 3
-        else: reward += 4
+            reward -= 4
+        else: reward += 5
 
         # if we exceed the amount of steps done in the shortest_path
         # start taking off rewards. Will be a few points at the beggining
         # but it will increase over time.
         if obs['steps_count'] > obs['steps_tolerance']:
             exceeded_steps = obs['steps_count'] - obs['steps_tolerance']
-            if exceeded_steps > 0: reward -= exceeded_steps/4 # More steps means even less reward
+            if exceeded_steps > 0: reward -= exceeded_steps # More steps means even less reward
 
         if obs['previous_step']['maxspeed'] < 40:
             reward += 3
@@ -350,9 +351,9 @@ class BikeRouterEnv(Env):
         if obs['distance_to_destination'] < get_distance_between_nodes(
             self.graph, self.path[-2], self.destination_node
         ):
-            reward += 10
+            reward += 20
         else:
-            reward -= 4
+            reward -= 10
 
         # if it's heading in the direction of the destination
         # relative_bearing(to the destination) == orientation
@@ -382,7 +383,9 @@ class BikeRouterEnv(Env):
         # Forcing path to reach the destination
         if terminated and not self.arrived and self.force_arriving:
             if self.revisiting: self.path.pop(-1)
-            self.path += get_shortest_path(self.graph, self.path[-1], self.destination_node)
+            path_to_dest = get_shortest_path(self.graph, self.path[-1], self.destination_node)
+            self.path.pop(-1)
+            self.path += path_to_dest
             self.arrived = True
 
         # Meaning that the episode got stuck (not supported)
@@ -405,11 +408,20 @@ class BikeRouterEnv(Env):
 
         if self.log: print(f'Selected action {action} from {self.current_node_neighbours}')
         
-        # Model predicted a non-valid action
+        # Agent took a non-valid action
         if action >= len(self.current_node_neighbours):
             self.selected_invalid_action = True
-            #                obs, reward, termi, trunc, info
-            return self._get_obs(), -100, True, False, self._get_info()
+            terminated = True
+            
+            if terminated and not self.arrived and self.force_arriving:
+                if self.revisiting: self.path.pop(-1)
+                path_to_dest = get_shortest_path(self.graph, self.path[-1], self.destination_node)
+                self.path.pop(-1)
+                self.path += path_to_dest
+                self.arrived = True
+
+            #                obs, reward, terminated, trunc, info
+            return self._get_obs(), -100, terminated, False, self._get_info()
         
         # Apply action
         self.current_node = self.current_node_neighbours[action]
