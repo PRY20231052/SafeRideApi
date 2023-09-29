@@ -87,6 +87,7 @@ class RouteViewSet(viewsets.ViewSet):
 
             # DEPRECATED
             # route.paths_geojson = get_routes_as_geojson(graph, paths)
+            route.paths_geojson = {}
             
             # the serializer variable saves every change done to the route instance
             return Response(serializer.data, status=201) # 201 means CREATED, while 200 only means OK
