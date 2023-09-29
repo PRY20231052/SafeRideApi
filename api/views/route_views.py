@@ -48,12 +48,13 @@ class RouteViewSet(viewsets.ViewSet):
                     distance+=attr['length']
                     coords_src = get_node_coordinates(graph, edge[0])
                     coords_trg = get_node_coordinates(graph, edge[1])
-
+                    attributes = {k:v for k,v in attr.items()}
+                    
                     path_edges.append(
                         Edge(
                             source=Coordinates(latitude=coords_src[0], longitude=coords_src[1]),
                             target=Coordinates(latitude=coords_trg[0], longitude=coords_trg[1]),
-                            attributes={k:v for k,v in attr.items() if 'geometry' not in attr}
+                            attributes={k:v for k,v in attr.items() if k != 'geometry'}
                             # this copies the keys and values of the dict if they meet the criteria
                         )
                     )
