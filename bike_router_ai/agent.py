@@ -27,30 +27,37 @@ class Agent:
             env=DummyVecEnv([lambda: self.env])
         )
 
-    def predict_route(self, origin_latlon, destination_latlon):
+    def predict_route(self, origin_latlon, waypoints_latlons: list):
         """
-        Predicts the route for an origin point `origin_latlon`
-        to a destination point `destination_latlon`.
+        Predicts the route for an origin point `origin_latlon`,
+        going throught all of the given waypoints in `waypoints_latlons`,
+        where the final destination is the last waypoint.
         Returns both the path predicted by the agent as a list of nodes from the graph
         and the Dijkstra path in the env, also as a list of nodes from the graph
         """
+        self.env = copy.deepcopy(flatten_base_env)
 
-        self.env.unwrapped.set_origin_and_destination(
-            origin_latlon,
-            destination_latlon
+        self.env.unwrapped.set_origin_and_waypoints(
+            origin_latlon=origin_latlon,
+            waypoints_latlons=waypoints_latlons
         )
 
-        obs, info = self.env.reset()
-        terminated = False
-        episode_reward = 0
+        predicted_paths = []
+        dijkstra_paths = []
+        while len(self.env.unwrapped.route_origin_and_waypoints_ids) >= 2:
+            obs, info = self.env.reset()
+            terminated = False
+            episode_reward = 0
 
-        while not terminated:
-            action = self.ppo.predict(obs)
-            action = action[0]
-            obs, reward, terminated, truncated, info = self.env.step(action)
-            episode_reward += reward
+            while not terminated:
+                action = self.ppo.predict(obs)
+                action = action[0]
+                obs, reward, terminated, truncated, info = self.env.step(action)
+                episode_reward += reward
 
-        print(f'Finished with reward {episode_reward}')
-        print(f'Status: arrived:{self.env.unwrapped.arrived}  invalid_action:{self.env.unwrapped.selected_invalid_action} revisiting:{self.env.unwrapped.revisiting} went_too_far:{self.env.unwrapped.went_too_far} ')
-            
-        return self.env.unwrapped.path, self.env.unwrapped.shortest_path
+            print(f'Finished with reward {episode_reward}')
+            print(f'Status: arrived:{self.env.unwrapped.arrived}  invalid_action:{self.env.unwrapped.selected_invalid_action} revisiting:{self.env.unwrapped.revisiting} went_too_far:{self.env.unwrapped.went_too_far} ')
+            predicted_paths.append(self.env.unwrapped.path)
+            dijkstra_paths.append(self.env.unwrapped.shortest_path)
+        
+        return predicted_paths, dijkstra_paths
