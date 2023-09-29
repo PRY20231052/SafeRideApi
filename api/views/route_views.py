@@ -58,11 +58,6 @@ class RouteViewSet(viewsets.ViewSet):
                             # this copies the keys and values of the dict if they meet the criteria
                         )
                     )
-                directions = [Direction(**direction) for direction in generate_route_directions(graph, path)]
-                print('\nAFTER SERIALIZATION')
-                for dire in directions:
-                    print(f'covered_edges_indexes {dire.covered_edges_indexes}')
-                    print(f'covered_polyline_points_indexes {dire.covered_polyline_points_indexes}')
                 route.paths.append(
                     Path(
                         nodes=[
@@ -72,7 +67,7 @@ class RouteViewSet(viewsets.ViewSet):
                             ) for node in path
                         ],
                         edges=path_edges,
-                        directions=directions,
+                        directions=[Direction(**direction) for direction in generate_route_directions(graph, path)],
                         polyline_points=[
                             Coordinates(
                                 latitude=point[0],
