@@ -49,15 +49,19 @@ class RouteViewSet(viewsets.ViewSet):
                     coords_src = get_node_coordinates(graph, edge[0])
                     coords_trg = get_node_coordinates(graph, edge[1])
 
-                    if 'geometry' in attr: attr.pop('geometry') #######
-
                     path_edges.append(
                         Edge(
                             source=Coordinates(latitude=coords_src[0], longitude=coords_src[1]),
                             target=Coordinates(latitude=coords_trg[0], longitude=coords_trg[1]),
-                            attributes=attr
+                            attributes={k:v for k,v in attr.items() if 'geometry' not in attr}
+                            # this copies the keys and values of the dict if they meet the criteria
                         )
                     )
+                directions = [Direction(**direction) for direction in generate_route_directions(graph, path)]
+                print('\nAFTER SERIALIZATION')
+                for dire in directions:
+                    print(f'covered_edges_indexes {dire.covered_edges_indexes}')
+                    print(f'covered_polyline_points_indexes {dire.covered_polyline_points_indexes}')
                 route.paths.append(
                     Path(
                         nodes=[
@@ -67,9 +71,7 @@ class RouteViewSet(viewsets.ViewSet):
                             ) for node in path
                         ],
                         edges=path_edges,
-                        directions=[
-                            Direction(**direction) for direction in generate_route_directions(graph, path)
-                        ],
+                        directions=directions,
                         polyline_points=[
                             Coordinates(
                                 latitude=point[0],
