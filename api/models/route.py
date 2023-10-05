@@ -12,6 +12,9 @@ class Route:
         self.departure_time = datetime.now()
 
         # This will be computed after the prediction by the model
-        self.paths = []
+        self.option1 = []
+        self.option2 = []
+        self.option3 = []
+        
         self.paths_geojson = {}
         

@@ -172,6 +172,16 @@ class BikeRouterEnv(Env):
                 random_index = random.randint(0, len(self.graph.nodes)-1)
                 self.destination_node = list(self.graph.nodes)[random_index]
                 if self.destination_node != self.origin_node: break
+        else:
+            assert len(self.route_origin_and_waypoints_ids) >= 2, 'Not enough nodes to compute a route. At least 2 node IDs inside self.route_origin_and_waypoints_ids are neeeded. Please call set_origin_and_waypoints() to insert new origin and waypoints'
+            # First path to compute will always go from the first ID to the second ID
+            self.origin_node = self.route_origin_and_waypoints_ids[0]
+            self.destination_node = self.route_origin_and_waypoints_ids[1]
+            # We pop out the first ID so when it resets, it computes the path from the second to thrid, and so on...
+            # On the last path computation, we expect that this pop will only leave us with a SINGLE ID, the final destination
+            self.route_origin_and_waypoints_ids.pop(0)
+
+        # NOTE: AT THIS POINT WE EXPECT THAT ORIGIN AND DESTINATION ARE BOTH SET AS DESIRED
 
         # Returning to origin node
         self.current_node = self.origin_node
@@ -199,22 +209,27 @@ class BikeRouterEnv(Env):
 
         return obs, info
     
-    def set_origin_and_destination(self, origin_latlon, destination_latlon, origin_node_id=0, destination_node_id=1, log=False):
+    def set_origin_and_waypoints(self, origin_latlon, waypoints_latlons: list, log=False):
+        
+        assert len(waypoints_latlons) > 0, 'YOU MUST PROVIDE AT LEAST ONE WAYPOINT!'
+
         self.randomize_ori_dest_on_reset = False
-        print(f'Setting origin coordinates {origin_latlon} and destination coordinates {destination_latlon}')
+        waypoints_latlons.insert(0, origin_latlon)
+
+
+        # THIS IS THE LIST OF POINTS THAT THE RESULTING ROUTE NEEDS TO GOT THROUGH
+        self.route_origin_and_waypoints_ids = []
+        node_id = 0
+
+        for latlon in waypoints_latlons:
+            print(f'Inserting node wiht latlon {latlon} into graph...', end='')
+            returned_node_id = insert_node_in_graph_v2(self.graph, node_id, latlon, log=log)
+            self.route_origin_and_waypoints_ids.append(returned_node_id)
+            node_id += 1
         
-        print('Inserting origin node into graph...', end='')
-        origin_node_id = insert_node_in_graph_v2(self.graph, origin_node_id, origin_latlon, log=log)
-
-        print('Inserting destination node into graph...', end='')
-        destination_node_id = insert_node_in_graph_v2(self.graph, destination_node_id, destination_latlon, log=log)
-
-        self.origin_node = origin_node_id
-        self.destination_node = destination_node_id
-
-        print('Origin and destination set!')
-        
-        self.reset()
+        # WE DONT CALL RESET INSIDE, WE EXPECT RESET TO BE CALL
+        # RIGHT AFTER SETTING THE ORIGIN AND WAYPOINTS.
+        # IF WE DON'T, WEIRD BEHVAIOR IS GONNA HAPPEN
         
 
     def get_crime_points(self, excel_path, sheet_name=None):

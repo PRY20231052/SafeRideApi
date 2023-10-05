@@ -321,10 +321,10 @@ def convert_edge_to_coordinates(graph, edge, coords_format='latlon', allow_curve
         for j in range(len(geometry_coords)-1):
             if coords_format=='lonlat': coordinates.append(list(geometry_coords[j]))
             else: coordinates.append([geometry_coords[j][1], geometry_coords[j][0]])
-
     else:
         coordinates.append(get_node_coordinates(graph, u, coords_format))
-        if add_end_node: coordinates.append(get_node_coordinates(graph, v, coords_format))
+    
+    if add_end_node: coordinates.append(get_node_coordinates(graph, v, coords_format))
 
     return coordinates
 
