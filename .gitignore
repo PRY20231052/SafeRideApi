@@ -4,3 +4,4 @@ __pycache__
 *.pyc
 bike_router_ai/.env
 .env
+db.sqlite3

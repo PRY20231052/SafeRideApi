@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from models.favorite_location import FavoriteLocation
+from api.models.favorite_location import FavoriteLocation
 
 class FavoriteLocationSerializer(serializers.ModelSerializer):
     class Meta:

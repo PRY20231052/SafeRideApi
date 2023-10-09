@@ -1,7 +1,6 @@
+from api.models.custom_user import CustomUser
 from api.models.location import Location
 from django.db import models
-from custom_user import CustomUser
-from location import Location
 
 class FavoriteLocation(Location):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
