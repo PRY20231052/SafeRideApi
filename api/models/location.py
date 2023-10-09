@@ -1,8 +1,7 @@
 from api.models.coordinates import Coordinates
 
 class Location:
-    def __init__(self, coordinates):
+    def _init_(self, coordinates, name="", address=""):
         self.coordinates = coordinates
-
-        self.name = ""
-        self.address = ""
+        self.name = name
+        self.address = address
