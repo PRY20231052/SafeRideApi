@@ -15,7 +15,7 @@ SECRET_KEY = 'django-insecure-9wg1x6c3ocx_o(st8d+-po6$ququ(l6dw6%5s(-*^b46i1!pza
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = ['10.0.2.2', '127.0.0.1', 'saferide-api.onrender.com']
+ALLOWED_HOSTS = ['10.0.2.2', '127.0.0.1', '127.0.0.1:8000']
 
 # Especifica el modelo de usuario personalizado
 AUTH_USER_MODEL = 'api.CustomUser'
@@ -39,12 +39,8 @@ INSTALLED_APPS = [
 REST_FRAMEWORK = {
     # Use Django's standard `django.contrib.auth` permissions,
     # or allow read-only access for unauthenticated users.
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.TokenAuthentication',
-    ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
-    ),
+
+
 }
 
 MIDDLEWARE = [
