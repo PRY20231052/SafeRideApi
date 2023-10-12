@@ -111,6 +111,14 @@ def get_edge_bearing(graph, node1, node2):
         graph.nodes[node2]['x']
     )
 
+def compute_bearing_between_points(point1, point2):
+    return ox.bearing.calculate_bearing(
+        point1[0],
+        point1[1],
+        point2[0],
+        point2[1],
+    )
+
 
 def change_nodes_colors_by_groups(graph, nodes_groups, colors_groups, default_color='w'):
     # nodes_groups: contains lists of nodes in groups, each group is meant to be set to a single color
@@ -321,10 +329,10 @@ def convert_edge_to_coordinates(graph, edge, coords_format='latlon', allow_curve
         for j in range(len(geometry_coords)-1):
             if coords_format=='lonlat': coordinates.append(list(geometry_coords[j]))
             else: coordinates.append([geometry_coords[j][1], geometry_coords[j][0]])
-
     else:
         coordinates.append(get_node_coordinates(graph, u, coords_format))
-        if add_end_node: coordinates.append(get_node_coordinates(graph, v, coords_format))
+    
+    if add_end_node: coordinates.append(get_node_coordinates(graph, v, coords_format))
 
     return coordinates
 
