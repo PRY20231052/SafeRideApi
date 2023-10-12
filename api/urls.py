@@ -13,9 +13,8 @@ router.register(r'trips', route_views.RouteViewSet, basename='trips')
 router.register(r'favorite_locations', favorite_locations_views.FavoriteLocationViewSet, basename='favloc')
 
 urlpatterns = [
-    path('api-auth/', include('rest_framework.urls')),
-    path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('register/', sign_up_views.SignUpView.as_view(), name='register'),
+    path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('login/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('register/', sign_up_views.RegisterView.as_view(), name='register'),
     path('', include(router.urls)),
 ]
