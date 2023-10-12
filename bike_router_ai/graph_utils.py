@@ -111,6 +111,14 @@ def get_edge_bearing(graph, node1, node2):
         graph.nodes[node2]['x']
     )
 
+def compute_bearing_between_points(point1, point2):
+    return ox.bearing.calculate_bearing(
+        point1[0],
+        point1[1],
+        point2[0],
+        point2[1],
+    )
+
 
 def change_nodes_colors_by_groups(graph, nodes_groups, colors_groups, default_color='w'):
     # nodes_groups: contains lists of nodes in groups, each group is meant to be set to a single color

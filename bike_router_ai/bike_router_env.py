@@ -8,7 +8,7 @@ import pandas as pd
 from bike_router_ai.graph_utils import *
 
 # Valores maximos y minimos de latitude y longitude de Lima Metropolitana
-MIN_LIM_LAT = -12.25
+MIN_LIM_LAT = -12.25    
 MAX_LIM_LAT = -11.56
 MIN_LIM_LON = -77.18
 MAX_LIM_LON = -76.80
@@ -30,10 +30,18 @@ class BikeRouterEnv(Env):
         render_mode='human',
         graph_size=13.3,
         window_resolution=1000,
-        window_aspect_ratio=(1,1)
+        window_aspect_ratio=(1,1),
+        difficultie=0.5,
     ):
         """
-        Hi
+        difficultie: Used on training. Determines how far away does the origin and destination need to be from each other.
+                Maxes at level 4, after that, it will set any origin and destination, no matter the distane between them
+                eg. difficultie = 0.5 ->  0 km  < distance_ori_dest <= 0.5 km
+                    difficultie = 1   ->  0 km  < distance_ori_dest <= 1 km
+                    difficultie = 3   ->  1 km  < distance_ori_dest <= 3 km
+                    difficultie = 3.5 -> 1.5 km < distance_ori_dest <= 3.5 km
+                    difficultie > 4   ->  0 km  < distance_ori_dest <= inf km
+                Works with decimal values as well.
         
         If human-rendering is used (which is not), `self.window` will be a reference to the window that we draw to.
         `self.clock` will be a clock that is used to ensure that the environment is rendered at the correct framerate.
@@ -45,6 +53,7 @@ class BikeRouterEnv(Env):
         self.force_arriving = force_arriving
         self.randomize_ori_dest_on_reset = randomize_ori_dest_on_reset
         self.log = log
+        self.difficultie = difficultie
 
         # Variables related to render()
         assert render_mode is None or render_mode in self.metadata["render_modes"]
@@ -104,6 +113,9 @@ class BikeRouterEnv(Env):
             ),
         }
 
+        # The max number of closest points the agent will be able to see,
+        self.num_prox_crime_points = 5
+
         self.observation_space = Dict({
             'current_latlon': Box(
                 low=np.array([MIN_LIM_LAT, MIN_LIM_LON]),
@@ -142,13 +154,20 @@ class BikeRouterEnv(Env):
                 dtype=np.int8
             ),
             'possible_steps': Tuple([Dict(self.edge_attributes_spaces)]*self.max_actions),
-            'crime_points': Tuple([
-                Box(
-                    low=np.array([MIN_LIM_LAT, MIN_LIM_LON]),
-                    high=np.array([MAX_LIM_LAT, MAX_LIM_LON]),
-                    dtype=np.float64
-                ),
-            ]*len(self.crime_points)),
+            'closest_crime_points': Tuple([
+                Dict({
+                    "latlon": Box(
+                        low=np.array([MIN_LIM_LAT, MIN_LIM_LON]),
+                        high=np.array([MAX_LIM_LAT, MAX_LIM_LON]),
+                        dtype=np.float64
+                    ),
+                    "distance": Box(
+                        low=0.0,
+                        high=np.inf,
+                        dtype=np.float32
+                    ),
+                })
+            ]*self.num_prox_crime_points), #len(self.crime_points)
         })
 
         self.reset()
@@ -171,7 +190,11 @@ class BikeRouterEnv(Env):
             while True:
                 random_index = random.randint(0, len(self.graph.nodes)-1)
                 self.destination_node = list(self.graph.nodes)[random_index]
-                if self.destination_node != self.origin_node: break
+                dist = get_distance_between_nodes(self.graph, self.origin_node, self.destination_node)
+                # If origin and destination are different and the distance between them is within the range desire by the difficultie level, then we stop searching destination
+                if self.destination_node != self.origin_node: 
+                    if self.difficultie > 4: break
+                    if ((self.difficultie - 2)*1000 if self.difficultie > 1 else 0) < dist <= self.difficultie * 1000: break
         else:
             assert len(self.route_origin_and_waypoints_ids) >= 2, 'Not enough nodes to compute a route. At least 2 node IDs inside self.route_origin_and_waypoints_ids are neeeded. Please call set_origin_and_waypoints() to insert new origin and waypoints'
             # First path to compute will always go from the first ID to the second ID
@@ -251,6 +274,14 @@ class BikeRouterEnv(Env):
             if distance <= tolerance_radius_meters:
                 return True
         return False
+    
+    def _get_reward_base_on_proximity_to_crime_points(self, crime_points, tolerance_radius_meters=120):
+        reward = 6 # if we are not close to any crime point, then this will be our reward
+        for crime_point in crime_points:
+            if crime_point['distance'] <= tolerance_radius_meters:
+                # for each crime point that's within our tolerance range, we will be decreasing the reward
+                reward -= 3
+        return reward
 
 
     def _get_edge_attributes(self, u, v):
@@ -283,8 +314,33 @@ class BikeRouterEnv(Env):
         possible_steps += [{key: -1 for key in self.edge_attributes_spaces}] * (self.max_actions - len(self.current_node_neighbours))
         return tuple(possible_steps)
 
+    def _get_closest_crime_points(self):
+        distances = [] # random number
+        crime_points = [] # random number
+        for crime_point_latlng in self.crime_points:
+            distance = get_distance_between_points(
+                [self.graph.nodes[self.current_node]['y'], self.graph.nodes[self.current_node]['x']],
+                crime_point_latlng,
+            )
+            crime_points.append((list(crime_point_latlng)))
+            distances.append(distance)
+            
+        sorted_indexes = np.argsort(distances)
+
+        crime_points_sorted_by_proximity = []
+        sorted_distances = []
+        for i in sorted_indexes:
+            crime_points_sorted_by_proximity.append(crime_points[i])
+            sorted_distances.append(distances[i])
+
+        return crime_points_sorted_by_proximity, sorted_distances
+    
 
     def _get_obs(self):
+        crime_points_sorted_by_proximity, sorted_distances = self._get_closest_crime_points()
+        crime_points_sorted_by_proximity = tuple(
+            [{ "latlon": point, "distance": dist } for point, dist, _ in zip(crime_points_sorted_by_proximity, sorted_distances, range(self.num_prox_crime_points))]
+        )
         return {
             'current_latlon': [
                 self.graph.nodes[self.current_node]['y'],
@@ -303,7 +359,7 @@ class BikeRouterEnv(Env):
             'previous_step': self.previous_step,
             'num_possible_steps': len(self.current_node_neighbours),
             'possible_steps': self._get_obs_possible_steps(),
-            'crime_points': tuple(self.crime_points),
+            'closest_crime_points': crime_points_sorted_by_proximity,
         }
 
 
@@ -320,13 +376,19 @@ class BikeRouterEnv(Env):
             # 'shortest_path': self.shortest_path
         }
 
-    def _calculate_reward_based_on_orientation(self, relative_bearing, bearing_sweetspot):
-        if 0 <= relative_bearing <= bearing_sweetspot or 360-bearing_sweetspot <= relative_bearing <= 360:
-            return 15
-        elif bearing_sweetspot < relative_bearing <= 90 or 270 <= relative_bearing < 360-bearing_sweetspot:
-            return 10
-        else:
-            return -10
+    def _calculate_reward_based_on_orientation(self, relative_bearing):
+        max_reward = 15 # min reawrd will alwyas be negative max reward
+
+        min_bearing = 0
+        max_bearing = 180
+        if 180 < relative_bearing <= 360:
+            relative_bearing -= 180 # to set it in the same half
+            min_bearing = 180
+            max_bearing = 0
+        
+        normalized_bearing = (relative_bearing - max_bearing)/(min_bearing - max_bearing)
+        reward = (normalized_bearing * 2*max_reward) - max_reward
+        return reward
 
 
     def _calculate_distance_tolerance(self, distance):
@@ -342,10 +404,6 @@ class BikeRouterEnv(Env):
 
         reward = 0
 
-        if self._is_close_to_crime_point(obs['current_latlon']):
-            reward -= 4
-        else: reward += 5
-
         # if we exceed the amount of steps done in the shortest_path
         # start taking off rewards. Will be a few points at the beggining
         # but it will increase over time.
@@ -353,29 +411,27 @@ class BikeRouterEnv(Env):
             exceeded_steps = obs['steps_count'] - obs['steps_tolerance']
             if exceeded_steps > 0: reward -= exceeded_steps # More steps means even less reward
 
-        if obs['previous_step']['maxspeed'] < 40:
-            reward += 3
+        # Reward the agent if it travels in a low speed limit highway
+        if obs['previous_step']['maxspeed'] < 40: reward += 3
 
         #0: no cycleway, 1: unsafe cycleway, 2: safe cycle_way
-        if obs['previous_step']['cycleway_level'] == 1:
-            reward += 2
-        elif obs['previous_step']['cycleway_level'] == 2:
-            reward += 4
+        if obs['previous_step']['cycleway_level'] == 1: reward += 2
+        elif obs['previous_step']['cycleway_level'] == 2: reward += 4
 
         # Reward if distance_to_destination is getting smaller
         if obs['distance_to_destination'] < get_distance_between_nodes(
             self.graph, self.path[-2], self.destination_node
-        ):
-            reward += 20
-        else:
-            reward -= 10
+        ): reward += 20
+        else: reward -= 10
 
         # if it's heading in the direction of the destination
         # relative_bearing(to the destination) == orientation
+        # max_reward = 15, min_reward = -15
         reward += self._calculate_reward_based_on_orientation(
-            obs['previous_step']['relative_bearing'],
-            bearing_sweetspot=30
+            obs['previous_step']['relative_bearing']
         )
+
+        reward += self._get_reward_base_on_proximity_to_crime_points(obs['closest_crime_points'])
 
         # Episode Termination conditions
         if self.current_node == self.destination_node:
@@ -385,12 +441,12 @@ class BikeRouterEnv(Env):
         # If revisiting node
         elif len(self.path) > 1 and obs['previous_step']['end_node_visited_status'] == 1: 
             self.revisiting = True
-            reward -= 80
+            reward -= 100
             terminated = True
         # If it's going too far away
         elif obs['distance_to_destination'] > self.distance_origin_destination * self.distance_tolerance_multiplier:
             self.went_too_far = True
-            reward -= 80
+            reward -= 100
             terminated = True
         else:
             terminated = False
